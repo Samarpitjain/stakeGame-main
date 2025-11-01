@@ -146,9 +146,15 @@ const startGame = async () => {
     STATE.profit = 0;
     AUTO.roundClicks = 0;
     
+    // Reset click handler from previous round
+    if ($('serverSeedHash')) {
+      $('serverSeedHash').onclick = null; 
+    }
+
     createGameBoard();
     updateUI();
     
+    // Display HASH preview
     const hashPreview = STATE.serverSeedHash.substring(0, 16);
     $('serverSeedHash').textContent = hashPreview + '...';
     
@@ -186,6 +192,19 @@ const handleTileClick = async (index, tile) => {
       
       endGame();
       addToRecentGames(false, STATE.profit);
+      
+      // MODIFICATION: Reveal full server seed on loss and add copy functionality
+      if (result.game.serverSeed) {
+        const fullSeed = result.game.serverSeed;
+        $('serverSeedHash').textContent = fullSeed;
+        $('serverSeedHash').onclick = () => {
+          navigator.clipboard.writeText(fullSeed)
+            .then(() => showToast('Server Seed copied!', 'info'))
+            .catch(() => showToast('Failed to copy server seed.', 'error'));
+        };
+        showToast('Server Seed revealed (click to copy)', 'info');
+      }
+      
       showToast(`💥 Mine hit! Lost ${formatCurrency(STATE.bet)}`, 'error');
     } else {
       // Safe tile
@@ -252,6 +271,19 @@ const cashout = async () => {
     
     endGame();
     addToRecentGames(true, STATE.profit);
+    
+    // MODIFICATION: Reveal full server seed on cashout and add copy functionality
+    if (result.game.serverSeed) {
+        const fullSeed = result.game.serverSeed;
+        $('serverSeedHash').textContent = fullSeed;
+        $('serverSeedHash').onclick = () => {
+            navigator.clipboard.writeText(fullSeed)
+                .then(() => showToast('Server Seed copied!', 'info'))
+                .catch(() => showToast('Failed to copy server seed.', 'error'));
+        };
+        showToast('Server Seed revealed (click to copy)', 'info');
+    }
+
     showToast(`💰 Cashed out! Won ${formatCurrency(STATE.profit)}`, 'success');
   } catch (error) {
     console.error('Failed to cashout:', error);
