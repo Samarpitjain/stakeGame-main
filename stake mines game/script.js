@@ -1,5 +1,5 @@
 // ========== Configuration ==========
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = window.API_BASE_URL ||'http://localhost:5000/api';
 const USER_ID = 'demo-user-' + Math.random().toString(36).substr(2, 9);
 
 // ========== State Management ==========

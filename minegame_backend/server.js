@@ -7,6 +7,7 @@ require('dotenv').config();
 
 const gameRoutes = require('./routes/gameRoutes');
 const userRoutes = require('./routes/userRoutes');
+const fairnessRoutes = require('./routes/fairnessRoutes'); // Added fairness route import
 
 const app = express();
 
@@ -14,26 +15,27 @@ const app = express();
 app.use(helmet());
 
 // ✅ FIXED CORS - Allow multiple origins for development
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5500',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5500',
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  process.env.FRONTEND_URL // Add the Vercel deployed frontend URL from environment variable
+].filter(Boolean);
+
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps or Postman)
     if (!origin) return callback(null, true);
     
-    // List of allowed origins
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5500',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:5500',
-      'http://localhost:8080',
-      'http://127.0.0.1:8080'
-    ];
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.log('Origin not allowed:', origin);
-      callback(null, true); // Allow anyway in development
+      // In production, you would typically use: callback(new Error('Not allowed by CORS'));
+      callback(null, true); // Keeping the existing development behavior for compatibility
     }
   },
   credentials: true,
@@ -54,11 +56,6 @@ app.use('/api/', limiter);
 // Routes
 app.use('/api/games', gameRoutes);
 app.use('/api/users', userRoutes);
-
-// In server.js, add this line with other route imports
-const fairnessRoutes = require('./routes/fairnessRoutes');
-
-// Add this line with other app.use() statements
 app.use('/api/fairness', fairnessRoutes);
 
 // Health check
@@ -83,16 +80,19 @@ app.use((req, res) => {
 });
 
 // MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/mines-game';
+const MONGODB_URI = process.env.MONGODB_URI;
 const PORT = process.env.PORT || 5000;
 
-mongoose.connect(MONGODB_URI, {
+// Use fallback only for local testing if MONGODB_URI is not set
+const finalMongoUri = MONGODB_URI || 'mongodb://localhost:27017/mines-game';
+
+mongoose.connect(finalMongoUri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
 .then(() => {
   console.log('✅ Connected to MongoDB');
-  console.log(`📊 Database: ${MONGODB_URI}`);
+  console.log(`📊 Database: ${finalMongoUri}`);
   
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
