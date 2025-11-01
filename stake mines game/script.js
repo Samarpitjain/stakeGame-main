@@ -1,162 +1,133 @@
-// ---------- API Configuration ----------
+// ========== Configuration ==========
 const API_BASE_URL = 'http://localhost:5000/api';
 const USER_ID = 'demo-user-' + Math.random().toString(36).substr(2, 9);
 
-// ---------- Splash Screen Transition ----------
-document.getElementById('play-btn').addEventListener('click', function() {
-  const splash = document.getElementById('splash-screen');
-  splash.classList.add('hidden');
-  
-  setTimeout(() => {
-    splash.style.display = 'none';
-    document.getElementById('game-container').style.display = 'block';
-    initializeUser();
-  }, 500);
-});
-
-// ---------- Utility ----------
-const el = id => document.getElementById(id);
-const formatINR = v => `₹${Number(v).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
-
-function toast(msg, duration = 1800){
-  const t = el('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), duration);
-}
-
-// ---------- Game State ----------
+// ========== State Management ==========
 const STATE = {
   balance: 1000,
   bet: 10,
   mines: 3,
-  total: 25,
+  gridSize: 25,
   clientSeed: 'tukda-bhai',
   nonce: 0,
   roundActive: false,
   opened: new Set(),
-  mineSet: new Set(),
+  minePositions: new Set(),
   multiplier: 1,
   currentGameId: null,
   serverSeedHash: '',
+  profit: 0
 };
 
 const AUTO = {
   running: false,
   remaining: 0,
-  targetClicks: 1,
-  intervalMs: 1200,
+  targetTiles: 3,
+  intervalMs: 1500,
   timer: null,
-  roundClicks: 0,
+  roundClicks: 0
 };
 
-// ---------- UI Setup ----------
-const grid = el('grid');
-const betInput = el('bet');
-const mineRange = el('mineCount');
-const mineView = el('mineCountView');
-const clientSeedInput = el('clientSeed');
-const startBtn = el('start');
-const cashoutBtn = el('cashout');
-const revealAllBtn = el('revealAll');
-const addFunds = el('addFunds');
+// ========== DOM Elements ==========
+const $ = (id) => document.getElementById(id);
+const $$ = (selector) => document.querySelectorAll(selector);
 
-function drawGrid(){
-  grid.innerHTML = '';
-  for(let i=0;i<STATE.total;i++){
-    const d = document.createElement('button');
-    d.className = 'tile';
-    d.dataset.idx = i;
-    d.addEventListener('click', ()=>onTile(i,d));
-    grid.appendChild(d);
+// ========== Utility Functions ==========
+const formatCurrency = (amount) => {
+  return `₹${Number(amount).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+};
+
+const showToast = (message, type = 'info') => {
+  const container = $('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideIn 0.3s ease-out reverse';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+};
+
+const playSound = (soundId) => {
+  const sound = $(soundId);
+  if (sound) {
+    sound.currentTime = 0;
+    sound.play().catch(() => {});
   }
-  updateKpis();
-}
+};
 
-function updateKpis(){
-  el('balance').textContent = formatINR(STATE.balance);
-  el('betView').textContent = formatINR(STATE.bet);
-  el('multView').textContent = `${STATE.multiplier.toFixed(2)}×`;
-  const pot = STATE.bet * STATE.multiplier;
-  el('potView').textContent = formatINR(pot);
-
-  const safeTotal = STATE.total - STATE.mines;
-  el('revealedView').textContent = `${STATE.opened.size} / ${safeTotal}`;
-  el('nonce').textContent = String(STATE.nonce);
-
-  // auto status
-  el('autoStatus').textContent = AUTO.running ? `running (${AUTO.remaining} left)` : 'idle';
-}
-
-function refreshControls(){
-  betInput.value = STATE.bet;
-  mineRange.value = STATE.mines;
-  mineView.textContent = STATE.mines;
-  clientSeedInput.value = STATE.clientSeed;
-
-  betInput.disabled = STATE.roundActive;
-  mineRange.disabled = STATE.roundActive;
-  clientSeedInput.disabled = STATE.roundActive;
-  startBtn.disabled = STATE.roundActive;
-  cashoutBtn.disabled = !STATE.roundActive || STATE.opened.size===0;
-}
-
-// ---------- API Calls ----------
-async function apiCall(endpoint, method = 'GET', body = null) {
+// ========== API Functions ==========
+const apiCall = async (endpoint, method = 'GET', body = null) => {
   try {
     const options = {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-      }
+      headers: { 'Content-Type': 'application/json' }
     };
     
-    if (body) {
-      options.body = JSON.stringify(body);
-    }
+    if (body) options.body = JSON.stringify(body);
     
     const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
     const data = await response.json();
     
-    if (!response.ok) {
-      throw new Error(data.error || 'API request failed');
-    }
+    if (!response.ok) throw new Error(data.error || 'API request failed');
     
     return data;
   } catch (error) {
     console.error('API Error:', error);
-    toast('Error: ' + error.message);
+    showToast(error.message, 'error');
     throw error;
   }
-}
+};
 
-async function initializeUser() {
+const initializeUser = async () => {
   try {
     const userData = await apiCall(`/users/${USER_ID}`);
     STATE.balance = userData.balance;
     STATE.nonce = userData.gamesPlayed || 0;
-    updateKpis();
-    toast('Welcome! Balance loaded.');
+    updateUI();
+    showToast('Welcome! Balance loaded.', 'success');
   } catch (error) {
     console.error('Failed to initialize user:', error);
   }
-}
+};
 
-async function newRound(){
-  // Validate bet
-  STATE.bet = Math.max(1, Math.floor(Number(betInput.value)||10));
-  if(STATE.bet > STATE.balance){ 
-    toast('Insufficient balance'); 
-    stopAuto(); 
-    return; 
+// ========== Game Functions ==========
+const createGameBoard = () => {
+  const board = $('gameBoard');
+  board.innerHTML = '';
+  
+  for (let i = 0; i < STATE.gridSize; i++) {
+    const tile = document.createElement('button');
+    tile.className = 'tile';
+    tile.dataset.index = i;
+    tile.addEventListener('click', () => handleTileClick(i, tile));
+    board.appendChild(tile);
   }
+};
 
-  STATE.clientSeed = clientSeedInput.value.trim() || 'client';
-  STATE.mines = Math.max(1, Math.min(24, Number(mineRange.value)||3));
+const startGame = async () => {
+  const betInput = $('betAmount');
+  const clientSeedInput = $('clientSeed');
+  const minesSlider = $('minesSlider');
+  
+  STATE.bet = Math.max(1, parseFloat(betInput.value) || 10);
+  STATE.clientSeed = clientSeedInput.value.trim() || 'default';
+  STATE.mines = parseInt(minesSlider.value) || 3;
+  
+  if (STATE.bet > STATE.balance) {
+    showToast('Insufficient balance!', 'error');
+    return;
+  }
+  
   STATE.nonce += 1;
-
+  
   try {
-    // Call backend to create game
     const gameData = await apiCall('/games/create', 'POST', {
       userId: USER_ID,
       betAmount: STATE.bet,
@@ -164,234 +135,386 @@ async function newRound(){
       clientSeed: STATE.clientSeed,
       nonce: STATE.nonce
     });
-
-    // Update state with backend response
+    
     STATE.currentGameId = gameData.game._id;
     STATE.serverSeedHash = gameData.game.serverSeedHash;
     STATE.balance = gameData.balance;
     STATE.roundActive = true;
     STATE.opened = new Set();
-    STATE.mineSet = new Set(); // Will be revealed only when game ends
+    STATE.minePositions = new Set();
     STATE.multiplier = 1;
+    STATE.profit = 0;
     AUTO.roundClicks = 0;
-
-    // UI Update
-    drawGrid();
-    refreshControls();
-    const seedPreview = STATE.serverSeedHash.slice(0, 16);
-    el('seedHash').textContent = `serverSeedHash: ${seedPreview}…`;
-    el('serverSeed').textContent = 'Hidden until round ends';
-    toast('Round started!');
+    
+    createGameBoard();
+    updateUI();
+    
+    const hashPreview = STATE.serverSeedHash.substring(0, 16);
+    $('serverSeedHash').textContent = hashPreview + '...';
+    
+    showToast(`Game started! Client seed: "${STATE.clientSeed}"`, 'success');
   } catch (error) {
     console.error('Failed to create game:', error);
     stopAuto();
   }
-}
+};
 
-function revealTile(idx, btn, isMine){
-  btn.classList.add('revealed');
-  if(isMine){
-    btn.classList.add('mine');
-    btn.innerHTML = '<img src="img/bomb.gif" width="80" height="80" alt="Mine">';
-  }else{
-    btn.classList.add('safe');
-    btn.innerHTML = '<img src="img/diamond.gif" width="80" height="80" alt="Mine">';
-  }
-  btn.disabled = true;
-}
-
-function revealAll(minePositions){
-  const tiles = grid.querySelectorAll('.tile');
-  tiles.forEach((b,i)=>{
-    if(!b.classList.contains('revealed')){
-      b.classList.add('revealed');
-      if(minePositions.includes(i)){
-        b.classList.add('mine'); 
-        b.innerHTML='<img src="img/bomb.gif" width="80" height="80" alt="Mine">';
-      }else{ 
-        b.classList.add('safe'); 
-        b.innerHTML='<img src="img/diamond.gif" width="80" height="80" alt="Mine">'; 
-      }
-      b.disabled = true;
-    }
-  });
-}
-
-function endRound(serverSeed = '', minePositions = []){
-  STATE.roundActive = false;
-  refreshControls();
-  if (minePositions.length > 0) {
-    revealAll(minePositions);
-  }
-  if (serverSeed) {
-    el('serverSeed').textContent = serverSeed;
-  }
-  el('seedHash').textContent = 'seed: –';
-  if(AUTO.running){
-    AUTO.remaining = Math.max(0, AUTO.remaining - 1);
-    updateKpis();
-  }
-}
-
-function playClick(){ const a = el('sndClick'); a && a.play().catch(()=>{}); }
-function playBlast(){ const a = el('sndBlast'); a && a.play().catch(()=>{}); }
-
-async function onTile(idx, btn){
-  if(!STATE.roundActive) return;
-  if(btn.classList.contains('revealed')) return;
-  if(!STATE.currentGameId) return;
-
+const handleTileClick = async (index, tile) => {
+  if (!STATE.roundActive) return;
+  if (tile.classList.contains('revealed')) return;
+  if (!STATE.currentGameId) return;
+  
   try {
-    // Call backend to reveal tile
     const result = await apiCall(`/games/${STATE.currentGameId}/reveal`, 'POST', {
-      tileIndex: idx
+      tileIndex: index
     });
-
+    
     if (result.isMine) {
-      // Hit a mine - game lost
-      playBlast();
-      revealTile(idx, btn, true);
+      // Hit mine
+      playSound('bombSound');
+      revealTile(tile, true);
       STATE.balance = result.balance;
-      toast('Boom! You hit a mine. -' + formatINR(STATE.bet));
-      endRound(result.game.serverSeed, result.game.minePositions);
-      updateKpis();
+      STATE.profit = -STATE.bet;
+      
+      // Reveal all mines
+      if (result.game.minePositions) {
+        result.game.minePositions.forEach(pos => {
+          STATE.minePositions.add(pos);
+        });
+        revealAllTiles();
+      }
+      
+      endGame();
+      addToRecentGames(false, STATE.profit);
+      showToast(`💥 Mine hit! Lost ${formatCurrency(STATE.bet)}`, 'error');
     } else {
       // Safe tile
-      playClick();
-      revealTile(idx, btn, false);
-      STATE.opened.add(idx);
+      playSound('clickSound');
+      revealTile(tile, false);
+      STATE.opened.add(index);
       STATE.multiplier = result.game.currentMultiplier;
-      updateKpis();
-      cashoutBtn.disabled = false;
-
-      if(AUTO.running){
+      STATE.profit = (STATE.bet * STATE.multiplier) - STATE.bet;
+      updateUI();
+      
+      if (AUTO.running) {
         AUTO.roundClicks += 1;
-        if(AUTO.roundClicks >= AUTO.targetClicks){
+        if (AUTO.roundClicks >= AUTO.targetTiles) {
           await cashout();
         }
       }
     }
   } catch (error) {
     console.error('Failed to reveal tile:', error);
-    toast('Error revealing tile');
   }
-}
+};
 
-async function cashout(){
-  if(!STATE.roundActive || STATE.opened.size===0) return;
-  if(!STATE.currentGameId) return;
+const revealTile = (tile, isMine) => {
+  tile.classList.add('revealed');
+  if (isMine) {
+    tile.classList.add('mine');
+    tile.innerHTML = '<img src="img/bomb.gif" alt="Mine">';
+  } else {
+    tile.classList.add('safe');
+    tile.innerHTML = '<img src="img/diamond.gif" alt="Gem">';
+  }
+  tile.disabled = true;
+};
 
+const revealAllTiles = () => {
+  const tiles = $$('.tile');
+  tiles.forEach((tile, index) => {
+    if (!tile.classList.contains('revealed')) {
+      if (STATE.minePositions.has(index)) {
+        setTimeout(() => revealTile(tile, true), index * 50);
+      } else {
+        setTimeout(() => revealTile(tile, false), index * 50);
+      }
+    }
+  });
+};
+
+const cashout = async () => {
+  if (!STATE.roundActive || STATE.opened.size === 0) return;
+  if (!STATE.currentGameId) return;
+  
   try {
     const result = await apiCall(`/games/${STATE.currentGameId}/cashout`, 'POST');
     
-    const profit = result.game.profit;
+    STATE.profit = result.game.profit;
     STATE.balance = result.balance;
-    toast('Cashed out: +' + formatINR(profit));
-    endRound(result.game.serverSeed, result.game.minePositions);
-    updateKpis();
+    
+    if (result.game.minePositions) {
+      result.game.minePositions.forEach(pos => {
+        STATE.minePositions.add(pos);
+      });
+      revealAllTiles();
+    }
+    
+    endGame();
+    addToRecentGames(true, STATE.profit);
+    showToast(`💰 Cashed out! Won ${formatCurrency(STATE.profit)}`, 'success');
   } catch (error) {
     console.error('Failed to cashout:', error);
-    toast('Error cashing out');
   }
-}
+};
 
-// ---------- Auto Play ----------
-function randomUnopenedIndex(){
-  const tiles = [];
-  for(let i=0;i<STATE.total;i++){
-    if(!STATE.opened.has(i)){
-      const btn = grid.children[i];
-      if(!btn.classList.contains('revealed')) tiles.push(i);
+const endGame = () => {
+  STATE.roundActive = false;
+  updateUI();
+  
+  if (AUTO.running) {
+    AUTO.remaining = Math.max(0, AUTO.remaining - 1);
+    if (AUTO.remaining <= 0) {
+      stopAuto();
     }
   }
-  if(!tiles.length) return -1;
-  return tiles[Math.floor(Math.random()*tiles.length)];
-}
+};
 
-async function autoTick(){
-  if(!AUTO.running){ return; }
-  if(AUTO.remaining <= 0){ stopAuto(); return; }
+// ========== Auto Play Functions ==========
+const startAuto = async () => {
+  AUTO.remaining = Math.max(1, parseInt($('autoCount').value) || 10);
+  AUTO.targetTiles = Math.max(1, parseInt($('autoTiles').value) || 3);
+  
+  if (AUTO.running) stopAuto();
+  
+  AUTO.running = true;
+  $('autoStatus').textContent = `Running (${AUTO.remaining} left)`;
+  
+  showToast('Auto mode started', 'info');
+  autoTick();
+};
 
-  if(!STATE.roundActive){
-    await newRound();
+const autoTick = async () => {
+  if (!AUTO.running || AUTO.remaining <= 0) {
+    stopAuto();
     return;
   }
-  // If round active, click a random cell
-  const idx = randomUnopenedIndex();
-  if(idx === -1){ await cashout(); return; }
-  const btn = grid.children[idx];
-  await onTile(idx, btn);
-}
+  
+  if (!STATE.roundActive) {
+    // Start new game
+    const autoBet = parseFloat($('autoBetAmount').value) || 10;
+    const autoMines = parseInt($('autoMinesSlider').value) || 3;
+    
+    $('betAmount').value = autoBet;
+    $('minesSlider').value = autoMines;
+    
+    await startGame();
+    
+    setTimeout(() => {
+      if (AUTO.running) autoPlayTiles();
+    }, 500);
+  }
+};
 
-function startAuto(){
-  AUTO.remaining = Math.max(1, Number(el('autoCount').value)||1);
-  AUTO.targetClicks = Math.max(1, Math.min(24, Number(el('autoClicks').value)||1));
-  AUTO.intervalMs = Math.max(300, Number(el('autoMs').value)||1200);
-  if(AUTO.running) stopAuto();
-  AUTO.running = true;
-  el('autoStatus').textContent = `running (${AUTO.remaining} left)`;
-  AUTO.timer = setInterval(autoTick, AUTO.intervalMs);
-  setTimeout(autoTick, 50);
-  toast('Auto started');
-}
-
-function stopAuto(){
-  AUTO.running = false;
-  if(AUTO.timer) clearInterval(AUTO.timer);
-  AUTO.timer = null;
-  el('autoStatus').textContent = 'idle';
-  toast('Auto stopped');
-}
-
-// ---------- Events ----------
-betInput.addEventListener('change', ()=>{ 
-  STATE.bet = Math.max(1, Math.floor(Number(betInput.value)||10)); 
-  updateKpis(); 
-});
-
-mineRange.addEventListener('input', ()=>{ 
-  STATE.mines = Number(mineRange.value); 
-  mineView.textContent = STATE.mines; 
-  updateKpis(); 
-});
-
-clientSeedInput.addEventListener('change', ()=>{ 
-  STATE.clientSeed = clientSeedInput.value; 
-});
-
-startBtn.addEventListener('click', newRound);
-cashoutBtn.addEventListener('click', cashout);
-
-revealAllBtn.addEventListener('click', async ()=>{ 
-  if (STATE.currentGameId && STATE.roundActive) {
-    try {
-      const gameData = await apiCall(`/games/${STATE.currentGameId}`);
-      if (gameData.minePositions) {
-        revealAll(gameData.minePositions);
-      }
-    } catch (error) {
-      console.error('Failed to reveal all:', error);
+const autoPlayTiles = async () => {
+  if (!AUTO.running || !STATE.roundActive) return;
+  
+  const availableTiles = [];
+  const tiles = $$('.tile');
+  
+  tiles.forEach((tile, index) => {
+    if (!tile.classList.contains('revealed')) {
+      availableTiles.push({ tile, index });
     }
+  });
+  
+  if (availableTiles.length === 0) {
+    await cashout();
+    setTimeout(autoTick, AUTO.intervalMs);
+    return;
   }
-});
+  
+  // Pick random tile
+  const random = availableTiles[Math.floor(Math.random() * availableTiles.length)];
+  await handleTileClick(random.index, random.tile);
+  
+  // Continue or cashout
+  if (AUTO.running && STATE.roundActive && AUTO.roundClicks < AUTO.targetTiles) {
+    setTimeout(autoPlayTiles, 300);
+  } else if (AUTO.running && STATE.roundActive) {
+    await cashout();
+    setTimeout(autoTick, AUTO.intervalMs);
+  } else if (!STATE.roundActive) {
+    setTimeout(autoTick, AUTO.intervalMs);
+  }
+};
 
-addFunds.addEventListener('click', async ()=>{ 
-  try {
-    const result = await apiCall(`/users/${USER_ID}/add-funds`, 'POST', {
-      amount: 1000
+const stopAuto = () => {
+  AUTO.running = false;
+  AUTO.remaining = 0;
+  if (AUTO.timer) {
+    clearInterval(AUTO.timer);
+    AUTO.timer = null;
+  }
+  $('autoStatus').textContent = 'Idle';
+  updateUI();
+  showToast('Auto mode stopped', 'info');
+};
+
+// ========== UI Update Functions ==========
+const updateUI = () => {
+  // Balance
+  $('balanceDisplay').textContent = formatCurrency(STATE.balance);
+  
+  // Stats
+  $('profitDisplay').textContent = formatCurrency(STATE.profit);
+  $('multiplierDisplay').textContent = `${STATE.multiplier.toFixed(2)}x`;
+  
+  const safeCount = STATE.gridSize - STATE.mines;
+  $('gemsRevealedDisplay').textContent = `${STATE.opened.size} / ${safeCount}`;
+  
+  // Mines count
+  $('minesDisplay').textContent = STATE.mines;
+  $('gemsCount').textContent = STATE.gridSize - STATE.mines;
+  $('minesCount').textContent = STATE.mines;
+  
+  // Auto mode
+  if ($('autoMinesDisplay')) {
+    const autoMines = parseInt($('autoMinesSlider').value) || 3;
+    $('autoMinesDisplay').textContent = autoMines;
+  }
+  
+  // Nonce
+  $('nonceDisplay').textContent = STATE.nonce;
+  
+  // Buttons
+  const startBtn = $('startBtn');
+  const cashoutBtn = $('cashoutBtn');
+  const autoStartBtn = $('autoStartBtn');
+  const autoStopBtn = $('autoStopBtn');
+  
+  if (STATE.roundActive) {
+    startBtn.classList.add('hidden');
+    cashoutBtn.classList.remove('hidden');
+    cashoutBtn.querySelector('.btn-amount').textContent = formatCurrency(STATE.bet * STATE.multiplier);
+  } else {
+    startBtn.classList.remove('hidden');
+    cashoutBtn.classList.add('hidden');
+  }
+  
+  if (AUTO.running) {
+    autoStartBtn.classList.add('hidden');
+    autoStopBtn.classList.remove('hidden');
+  } else {
+    autoStartBtn.classList.remove('hidden');
+    autoStopBtn.classList.add('hidden');
+  }
+  
+  // Disable controls during active game
+  $('betAmount').disabled = STATE.roundActive;
+  $('minesSlider').disabled = STATE.roundActive;
+  $('clientSeed').disabled = STATE.roundActive;
+};
+
+// ========== Recent Games ==========
+const addToRecentGames = (isWin, profit) => {
+  const container = $('recentGames');
+  const emptyState = container.querySelector('.empty-state');
+  if (emptyState) emptyState.remove();
+  
+  const item = document.createElement('div');
+  item.className = 'recent-game-item';
+  item.innerHTML = `
+    <span>${isWin ? '💎' : '💣'} ${STATE.mines} mines</span>
+    <span class="game-result ${isWin ? 'win' : 'loss'}">
+      ${profit >= 0 ? '+' : ''}${formatCurrency(profit)}
+    </span>
+  `;
+  
+  container.insertBefore(item, container.firstChild);
+  
+  // Keep only last 10 games
+  while (container.children.length > 10) {
+    container.removeChild(container.lastChild);
+  }
+};
+
+// ========== Event Listeners ==========
+document.addEventListener('DOMContentLoaded', () => {
+  createGameBoard();
+  updateUI();
+  initializeUser();
+  
+  // Mode tabs
+  $$('.mode-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      $$('.mode-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      const mode = tab.dataset.mode;
+      if (mode === 'manual') {
+        $('manual-controls').classList.remove('hidden');
+        $('auto-controls').classList.add('hidden');
+      } else {
+        $('manual-controls').classList.add('hidden');
+        $('auto-controls').classList.remove('hidden');
+      }
     });
-    STATE.balance = result.balance;
-    updateKpis(); 
-    toast('Funds added: +₹1,000');
-  } catch (error) {
-    console.error('Failed to add funds:', error);
-  }
+  });
+  
+  // Bet buttons
+  $$('.bet-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      const input = $('betAmount');
+      let value = parseFloat(input.value) || 10;
+      
+      if (action === 'half') value = Math.max(1, value / 2);
+      if (action === 'double') value = value * 2;
+      
+      input.value = value.toFixed(2);
+      STATE.bet = value;
+      updateUI();
+    });
+  });
+  
+  // Mines slider
+  $('minesSlider').addEventListener('input', (e) => {
+    STATE.mines = parseInt(e.target.value);
+    updateUI();
+  });
+  
+  $('autoMinesSlider')?.addEventListener('input', (e) => {
+    const mines = parseInt(e.target.value);
+    $('autoMinesDisplay').textContent = mines;
+  });
+  
+  // Buttons
+  $('startBtn').addEventListener('click', startGame);
+  $('cashoutBtn').addEventListener('click', cashout);
+  $('autoStartBtn')?.addEventListener('click', startAuto);
+  $('autoStopBtn')?.addEventListener('click', stopAuto);
+  
+  $('addFundsBtn').addEventListener('click', async () => {
+    try {
+      const result = await apiCall(`/users/${USER_ID}/add-funds`, 'POST', {
+        amount: 1000
+      });
+      STATE.balance = result.balance;
+      updateUI();
+      showToast('Added ₹1,000 to balance', 'success');
+    } catch (error) {
+      console.error('Failed to add funds:', error);
+    }
+  });
+  
+  // Client seed change notification
+  $('clientSeed').addEventListener('change', (e) => {
+    const newSeed = e.target.value.trim();
+    if (newSeed) {
+      showToast(`Client seed will be: "${newSeed}" (next round)`, 'info');
+    }
+  });
 });
 
-el('autoStart').addEventListener('click', startAuto);
-el('autoStop').addEventListener('click', stopAuto);
-
-// ---------- Init ----------
-drawGrid();
-refreshControls();
-updateKpis();
+// ========== Keyboard Shortcuts ==========
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !STATE.roundActive) {
+    e.preventDefault();
+    startGame();
+  }
+  if (e.code === 'Enter' && STATE.roundActive && STATE.opened.size > 0) {
+    e.preventDefault();
+    cashout();
+  }
+});

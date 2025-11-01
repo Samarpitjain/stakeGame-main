@@ -1,5 +1,5 @@
 // controllers/fairnessController.js
-const { sha256, generateMinePositions } = require('../utils/seedUtils');
+const { sha256, generateMinePositions, generateSeedHash } = require('../utils/seedUtils');
 
 /**
  * Verify game fairness by regenerating mine positions
@@ -16,9 +16,9 @@ exports.verifyFairness = async (req, res) => {
       });
     }
 
-    if (!nonce || nonce < 0) {
+    if (nonce === undefined || nonce < 0) {
       return res.status(400).json({ 
-        error: 'Valid nonce is required' 
+        error: 'Valid nonce is required (must be >= 0)' 
       });
     }
 
@@ -39,6 +39,9 @@ exports.verifyFairness = async (req, res) => {
       gridSize,
       minesCount
     );
+
+    // Generate the combined seed hash for verification
+    const combinedHash = generateSeedHash(serverSeed, clientSeed, nonce);
 
     // Create fairness matrix (5x5 grid visualization)
     const matrix = Array(gridSize).fill(null).map((_, idx) => ({
@@ -69,8 +72,8 @@ exports.verifyFairness = async (req, res) => {
         minePositions: minePositions.sort((a, b) => a - b),
         safeTiles: safeTiles.sort((a, b) => a - b),
         matrix,
-        seedCombination: `${serverSeed}|${clientSeed}|${nonce}`,
-        combinedHash: sha256(`${serverSeed}|${clientSeed}|${nonce}`)
+        seedCombination: `${serverSeed}:${clientSeed}:${nonce}`,
+        combinedHash
       },
       message: 'Fairness verification complete. Mine positions regenerated successfully.'
     });
@@ -132,7 +135,7 @@ exports.verifyGameById = async (req, res) => {
     const computedHash = sha256(game.serverSeed);
     const hashMatches = computedHash === game.serverSeedHash;
 
-    // Regenerate mine positions
+    // Regenerate mine positions using the SAME algorithm
     const regeneratedPositions = generateMinePositions(
       game.serverSeed,
       game.clientSeed,
@@ -153,6 +156,9 @@ exports.verifyGameById = async (req, res) => {
       wasRevealed: game.revealedTiles.includes(idx)
     }));
 
+    // Generate combined hash
+    const combinedHash = generateSeedHash(game.serverSeed, game.clientSeed, game.nonce);
+
     res.json({
       success: true,
       verified: hashMatches && positionsMatch,
@@ -171,7 +177,9 @@ exports.verifyGameById = async (req, res) => {
         clientSeed: game.clientSeed,
         nonce: game.nonce,
         minesCount: game.minesCount,
-        gridSize: game.gridSize
+        gridSize: game.gridSize,
+        seedCombination: `${game.serverSeed}:${game.clientSeed}:${game.nonce}`,
+        combinedHash
       },
       result: {
         originalMinePositions: sortedOriginal,

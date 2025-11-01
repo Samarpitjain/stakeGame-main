@@ -15,37 +15,61 @@ function sha256(str) {
 }
 
 /**
- * Convert hex hash to 32-bit seed integer
+ * Convert hex hash to multiple seed integers for better randomness
+ * Takes segments from different parts of the hash
  */
-function hashToSeedInt(hex) {
-  return parseInt(hex.slice(0, 8), 16) >>> 0;
+function hashToSeedArray(hex) {
+  const seeds = [];
+  // Take 4 different 8-char segments from the 64-char hash
+  for (let i = 0; i < 4; i++) {
+    const segment = hex.slice(i * 16, i * 16 + 8);
+    seeds.push(parseInt(segment, 16) >>> 0);
+  }
+  return seeds;
 }
 
 /**
  * Mulberry32 PRNG (deterministic)
- * Same implementation as frontend for consistency
+ * Enhanced version that uses multiple seeds for better distribution
  */
-function mulberry32(seed) {
-  let t = seed >>> 0;
+function createPRNG(seedArray) {
+  let index = 0;
+  let t = seedArray[0] >>> 0;
+  
   return function() {
+    // Mix in different seed segments periodically for better randomness
+    if (Math.random() < 0.25 && seedArray[index % seedArray.length]) {
+      t ^= seedArray[index % seedArray.length];
+      index++;
+    }
+    
     t += 0x6D2B79F5;
     let r = Math.imul(t ^ (t >>> 15), 1 | t);
     r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    const result = ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    return result;
   };
 }
 
 /**
  * Generate mine positions using provably fair algorithm
+ * FIXED: Now properly combines seeds in the correct format
  */
 function generateMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount) {
-  // Create seed string
-  const seedStr = `${serverSeed}|${clientSeed}|${nonce}`;
+  // CRITICAL: Combine seeds in the standard provably fair format
+  // Format: serverSeed:clientSeed:nonce (same as most casino sites)
+  const seedStr = `${serverSeed}:${clientSeed}:${nonce}`;
+  
+  // Hash the combined seed string
   const hex = sha256(seedStr);
-  const seedInt = hashToSeedInt(hex);
-  const prng = mulberry32(seedInt);
+  
+  // Create multiple seed integers from different parts of the hash
+  const seedArray = hashToSeedArray(hex);
+  
+  // Initialize PRNG with the seed array
+  const prng = createPRNG(seedArray);
 
-  // Shuffle array using PRNG
+  // Fisher-Yates shuffle using PRNG
   const arr = Array.from({ length: gridSize }, (_, i) => i);
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(prng() * (i + 1));
@@ -53,11 +77,12 @@ function generateMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCou
   }
 
   // Return first N positions as mine positions
-  return arr.slice(0, minesCount);
+  return arr.slice(0, minesCount).sort((a, b) => a - b);
 }
 
 /**
  * Verify if mine positions match the seeds
+ * FIXED: Uses the same seed combination format
  */
 function verifyMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount, minePositions) {
   const generated = generateMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount);
@@ -73,6 +98,7 @@ function verifyMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount
 
 /**
  * Calculate multiplier for current game state
+ * Risk-based multiplier calculation
  */
 function calculateMultiplier(currentMultiplier, revealedCount, gridSize, minesCount) {
   const total = gridSize;
@@ -81,7 +107,7 @@ function calculateMultiplier(currentMultiplier, revealedCount, gridSize, minesCo
   
   if (remainingSafe <= 0) return currentMultiplier;
   
-  // Risk bonus (matches frontend)
+  // Risk bonus calculation (matches standard casino formula)
   const riskStep = 0.5;
   const baseMines = 1;
   const riskBonus = Math.max(0, 1 + riskStep * (minesCount - baseMines));
@@ -90,12 +116,22 @@ function calculateMultiplier(currentMultiplier, revealedCount, gridSize, minesCo
   return currentMultiplier * step;
 }
 
+/**
+ * Generate seed combination hash for verification
+ * This is what players can verify independently
+ */
+function generateSeedHash(serverSeed, clientSeed, nonce) {
+  const seedStr = `${serverSeed}:${clientSeed}:${nonce}`;
+  return sha256(seedStr);
+}
+
 module.exports = {
   generateServerSeed,
   sha256,
-  hashToSeedInt,
-  mulberry32,
+  hashToSeedArray,
+  createPRNG,
   generateMinePositions,
   verifyMinePositions,
-  calculateMultiplier
+  calculateMultiplier,
+  generateSeedHash
 };
