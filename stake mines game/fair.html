@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Provably Fair Verifier - Mines Game</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #333;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    h1 {
+      text-align: center;
+      color: #667eea;
+      margin-bottom: 10px;
+      font-size: 2.5em;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 40px;
+      font-size: 1.1em;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #eee;
+    }
+
+    .tab {
+      padding: 15px 30px;
+      background: none;
+      border: none;
+      font-size: 1.1em;
+      cursor: pointer;
+      color: #666;
+      border-bottom: 3px solid transparent;
+      transition: all 0.3s;
+    }
+
+    .tab.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+      font-weight: bold;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .form-group {
+      margin-bottom: 25px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #444;
+      font-size: 0.95em;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 1em;
+      transition: border-color 0.3s;
+      font-family: 'Courier New', monospace;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .input-hint {
+      font-size: 0.85em;
+      color: #999;
+      margin-top: 5px;
+    }
+
+    button {
+      width: 100%;
+      padding: 18px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.1em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .result-box {
+      margin-top: 30px;
+      padding: 25px;
+      background: #f8f9fa;
+      border-radius: 15px;
+      border-left: 5px solid #667eea;
+      display: none;
+    }
+
+    .result-box.show {
+      display: block;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .result-box h3 {
+      color: #667eea;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 5px 15px;
+      border-radius: 20px;
+      font-size: 0.85em;
+      font-weight: bold;
+    }
+
+    .status-success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .info-item {
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .info-label {
+      font-size: 0.85em;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .info-value {
+      font-family: 'Courier New', monospace;
+      font-size: 0.95em;
+      word-break: break-all;
+      color: #333;
+      font-weight: 600;
+    }
+
+    .grid-visualization {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin: 20px 0;
+      max-width: 400px;
+    }
+
+    .grid-cell {
+      aspect-ratio: 1;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.2em;
+      transition: transform 0.2s;
+      cursor: default;
+    }
+
+    .grid-cell:hover {
+      transform: scale(1.1);
+    }
+
+    .grid-cell.mine {
+      background: linear-gradient(135deg, #ff6b6b, #ee5a6f);
+      color: white;
+    }
+
+    .grid-cell.safe {
+      background: linear-gradient(135deg, #51cf66, #37b24d);
+      color: white;
+    }
+
+    .grid-cell.revealed {
+      border: 3px solid #ffd43b;
+    }
+
+    .positions-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 15px 0;
+    }
+
+    .position-badge {
+      padding: 8px 15px;
+      background: #667eea;
+      color: white;
+      border-radius: 20px;
+      font-weight: bold;
+      font-family: 'Courier New', monospace;
+    }
+
+    .loading {
+      text-align: center;
+      color: #667eea;
+      font-size: 1.2em;
+      margin: 20px 0;
+    }
+
+    .error-message {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 20px;
+      border-left: 5px solid #f5c6cb;
+    }
+
+    .success-message {
+      background: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 20px;
+      border-left: 5px solid #c3e6cb;
+    }
+
+    .legend {
+      display: flex;
+      gap: 20px;
+      margin: 20px 0;
+      font-size: 0.9em;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-box {
+      width: 30px;
+      height: 30px;
+      border-radius: 5px;
+    }
+
+    .hash-display {
+      background: #2d3748;
+      color: #68d391;
+      padding: 15px;
+      border-radius: 10px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+      word-break: break-all;
+      margin: 15px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎲 Provably Fair Verifier</h1>
+    <p class="subtitle">Verify the fairness of any Mines game round</p>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="custom">Custom Verification</button>
+      <button class="tab" data-tab="game">Verify Game by ID</button>
+    </div>
+
+    <!-- Custom Verification Tab -->
+    <div class="tab-content active" id="custom-tab">
+      <form id="verifyForm">
+        <div class="form-group">
+          <label>Server Seed</label>
+          <input type="text" id="serverSeed" placeholder="e.g., a1b2c3d4e5f6..." required>
+          <div class="input-hint">The secret seed revealed after the game ends</div>
+        </div>
+
+        <div class="form-group">
+          <label>Client Seed</label>
+          <input type="text" id="clientSeed" value="tukda-bhai" placeholder="e.g., my-custom-seed" required>
+          <div class="input-hint">Your chosen seed (visible before game starts)</div>
+        </div>
+
+        <div class="form-group">
+          <label>Nonce (Round Number)</label>
+          <input type="number" id="nonce" value="1" min="0" placeholder="e.g., 1" required>
+          <div class="input-hint">Increments with each game round</div>
+        </div>
+
+        <div class="form-group">
+          <label>Number of Mines</label>
+          <input type="number" id="minesCount" value="3" min="1" max="24" placeholder="e.g., 3" required>
+          <div class="input-hint">Between 1 and 24 mines</div>
+        </div>
+
+        <button type="submit" id="verifyBtn">🔍 Verify Fairness</button>
+      </form>
+
+      <div id="customResult" class="result-box"></div>
+    </div>
+
+    <!-- Game ID Verification Tab -->
+    <div class="tab-content" id="game-tab">
+      <form id="gameVerifyForm">
+        <div class="form-group">
+          <label>Game ID</label>
+          <input type="text" id="gameId" placeholder="e.g., 507f1f77bcf86cd799439011" required>
+          <div class="input-hint">Enter the MongoDB ObjectId of the game</div>
+        </div>
+
+        <button type="submit" id="gameVerifyBtn">🔍 Verify Game</button>
+      </form>
+
+      <div id="gameResult" class="result-box"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:5000/api';
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab + '-tab').classList.add('active');
+      });
+    });
+
+    // Custom Verification
+    document.getElementById('verifyForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const btn = document.getElementById('verifyBtn');
+      const resultBox = document.getElementById('customResult');
+      
+      btn.disabled = true;
+      btn.textContent = '⏳ Verifying...';
+      resultBox.innerHTML = '<div class="loading">Calculating fairness matrix...</div>';
+      resultBox.classList.add('show');
+
+      try {
+        const response = await fetch(`${API_URL}/fairness/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverSeed: document.getElementById('serverSeed').value,
+            clientSeed: document.getElementById('clientSeed').value,
+            nonce: parseInt(document.getElementById('nonce').value),
+            minesCount: parseInt(document.getElementById('minesCount').value)
+          })
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+          displayCustomResult(data);
+        } else {
+          throw new Error(data.error || 'Verification failed');
+        }
+      } catch (error) {
+        resultBox.innerHTML = `<div class="error-message">❌ Error: ${error.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Verify Fairness';
+      }
+    });
+
+    // Game ID Verification
+    document.getElementById('gameVerifyForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const btn = document.getElementById('gameVerifyBtn');
+      const resultBox = document.getElementById('gameResult');
+      const gameId = document.getElementById('gameId').value;
+      
+      btn.disabled = true;
+      btn.textContent = '⏳ Verifying...';
+      resultBox.innerHTML = '<div class="loading">Fetching game data...</div>';
+      resultBox.classList.add('show');
+
+      try {
+        const response = await fetch(`${API_URL}/fairness/verify-game/${gameId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          displayGameResult(data);
+        } else {
+          throw new Error(data.error || 'Verification failed');
+        }
+      } catch (error) {
+        resultBox.innerHTML = `<div class="error-message">❌ Error: ${error.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Verify Game';
+      }
+    });
+
+    function displayCustomResult(data) {
+      const resultBox = document.getElementById('customResult');
+      const v = data.verification;
+      const r = data.result;
+      
+      resultBox.innerHTML = `
+        <h3>
+          ✅ Verification Complete
+          <span class="status-badge status-success">FAIR</span>
+        </h3>
+
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">Server Seed Hash</div>
+            <div class="info-value">${v.serverSeedHash.substring(0, 16)}...</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Client Seed</div>
+            <div class="info-value">${v.clientSeed}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Nonce</div>
+            <div class="info-value">${v.nonce}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Mines Count</div>
+            <div class="info-value">${v.minesCount} / ${v.gridSize}</div>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">📊 Grid Visualization (5×5)</h4>
+        <div class="legend">
+          <div class="legend-item">
+            <div class="legend-box" style="background: linear-gradient(135deg, #ff6b6b, #ee5a6f);"></div>
+            <span>Mine (💣)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-box" style="background: linear-gradient(135deg, #51cf66, #37b24d);"></div>
+            <span>Safe (💎)</span>
+          </div>
+        </div>
+
+        <div class="grid-visualization">
+          ${r.matrix.map(cell => `
+            <div class="grid-cell ${cell.isMine ? 'mine' : 'safe'}">
+              ${cell.isMine ? '💣' : '💎'}
+            </div>
+          `).join('')}
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">💣 Mine Positions</h4>
+        <div class="positions-list">
+          ${r.minePositions.map(pos => `<span class="position-badge">${pos}</span>`).join('')}
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">💎 Safe Positions</h4>
+        <div class="positions-list">
+          ${r.safeTiles.map(pos => `<span class="position-badge" style="background: #51cf66;">${pos}</span>`).join('')}
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">🔐 Combined Hash</h4>
+        <div class="hash-display">${r.combinedHash}</div>
+
+        <div class="success-message">
+          ${data.message}
+        </div>
+      `;
+    }
+
+    function displayGameResult(data) {
+      const resultBox = document.getElementById('gameResult');
+      const v = data.verification;
+      const r = data.result;
+      const g = data.game;
+      
+      const statusClass = data.verified ? 'status-success' : 'status-error';
+      const statusIcon = data.verified ? '✅' : '❌';
+      
+      resultBox.innerHTML = `
+        <h3>
+          ${statusIcon} ${data.message}
+          <span class="status-badge ${statusClass}">${data.verified ? 'VERIFIED' : 'FAILED'}</span>
+        </h3>
+
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">Game Status</div>
+            <div class="info-value">${g.status.toUpperCase()}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Bet Amount</div>
+            <div class="info-value">₹${g.betAmount}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Payout</div>
+            <div class="info-value">₹${g.payoutAmount || 0}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Profit</div>
+            <div class="info-value" style="color: ${g.profit >= 0 ? '#51cf66' : '#ff6b6b'}">
+              ₹${g.profit || 0}
+            </div>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">🔐 Verification Details</h4>
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">Hash Match</div>
+            <div class="info-value">${v.hashMatches ? '✅ YES' : '❌ NO'}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Positions Match</div>
+            <div class="info-value">${r.positionsMatch ? '✅ YES' : '❌ NO'}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Nonce</div>
+            <div class="info-value">${v.nonce}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Mines</div>
+            <div class="info-value">${v.minesCount} / ${v.gridSize}</div>
+          </div>
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">📊 Grid Visualization</h4>
+        <div class="legend">
+          <div class="legend-item">
+            <div class="legend-box" style="background: linear-gradient(135deg, #ff6b6b, #ee5a6f);"></div>
+            <span>Mine (💣)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-box" style="background: linear-gradient(135deg, #51cf66, #37b24d);"></div>
+            <span>Safe (💎)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-box" style="border: 3px solid #ffd43b; background: #fff;"></div>
+            <span>Revealed</span>
+          </div>
+        </div>
+
+        <div class="grid-visualization">
+          ${r.matrix.map(cell => `
+            <div class="grid-cell ${cell.isMine ? 'mine' : 'safe'} ${cell.wasRevealed ? 'revealed' : ''}">
+              ${cell.isMine ? '💣' : '💎'}
+            </div>
+          `).join('')}
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">🔍 Mine Positions Comparison</h4>
+        <div style="margin: 15px 0;">
+          <strong>Original:</strong>
+          <div class="positions-list">
+            ${r.originalMinePositions.map(pos => `<span class="position-badge">${pos}</span>`).join('')}
+          </div>
+        </div>
+        <div style="margin: 15px 0;">
+          <strong>Regenerated:</strong>
+          <div class="positions-list">
+            ${r.regeneratedMinePositions.map(pos => `<span class="position-badge" style="background: ${r.positionsMatch ? '#51cf66' : '#ff6b6b'};">${pos}</span>`).join('')}
+          </div>
+        </div>
+
+        <h4 style="margin-top: 25px; color: #667eea;">🔐 Seeds</h4>
+        <div class="info-item" style="margin-bottom: 10px;">
+          <div class="info-label">Server Seed</div>
+          <div class="info-value">${v.serverSeed}</div>
+        </div>
+        <div class="info-item" style="margin-bottom: 10px;">
+          <div class="info-label">Server Seed Hash</div>
+          <div class="info-value">${v.serverSeedHash}</div>
+        </div>
+        <div class="info-item" style="margin-bottom: 10px;">
+          <div class="info-label">Computed Hash</div>
+          <div class="info-value">${v.computedHash}</div>
+        </div>
+        <div class="info-item">
+          <div class="info-label">Client Seed</div>
+          <div class="info-value">${v.clientSeed}</div>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
