@@ -190,7 +190,6 @@
 
     .result-box {
       display: none;
-      margin-top: 30px;
     }
 
     .result-box.show {
@@ -448,6 +447,10 @@
   </style>
 </head>
 <body>
+  <script>
+    window.API_BASE_URL = 'REPLACE_ME_API_URL'; 
+  </script>
+  
   <div class="container">
     <a href="index.html" class="back-link">← Back to Game</a>
     
@@ -462,7 +465,6 @@
       <button class="tab" data-tab="game">Verify by Game ID</button>
     </div>
 
-    <!-- Custom Verification -->
     <div class="tab-content active" id="custom-tab">
       <div class="card">
         <form id="verifyForm">
@@ -499,7 +501,6 @@
       </div>
     </div>
 
-    <!-- Game ID Verification -->
     <div class="tab-content" id="game-tab">
       <div class="card">
         <form id="gameVerifyForm">
@@ -520,7 +521,8 @@
   </div>
 
   <script>
-    const API_URL = 'http://localhost:5000/api';
+    // MODIFIED: Read API URL from the global window variable injected during Vercel build
+    const API_URL = window.API_BASE_URL || 'http://localhost:5000/api';
 
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
