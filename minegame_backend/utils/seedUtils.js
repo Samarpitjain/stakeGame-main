@@ -15,59 +15,38 @@ function sha256(str) {
 }
 
 /**
- * Convert hex hash to multiple seed integers for better randomness
- * Takes segments from different parts of the hash
- */
-function hashToSeedArray(hex) {
-  const seeds = [];
-  // Take 4 different 8-char segments from the 64-char hash
-  for (let i = 0; i < 4; i++) {
-    const segment = hex.slice(i * 16, i * 16 + 8);
-    seeds.push(parseInt(segment, 16) >>> 0);
-  }
-  return seeds;
-}
-
-/**
  * Mulberry32 PRNG (deterministic)
- * Enhanced version that uses multiple seeds for better distribution
+ * Simple, fast, and deterministic pseudo-random number generator
  */
-function createPRNG(seedArray) {
-  let index = 0;
-  let t = seedArray[0] >>> 0;
+function createPRNG(seed) {
+  let t = seed >>> 0;
   
   return function() {
-    // Mix in different seed segments periodically for better randomness
-    if (Math.random() < 0.25 && seedArray[index % seedArray.length]) {
-      t ^= seedArray[index % seedArray.length];
-      index++;
-    }
-    
     t += 0x6D2B79F5;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-    const result = ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-    return result;
+    let z = t;
+    z = Math.imul(z ^ (z >>> 15), z | 1);
+    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
+    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
   };
 }
 
 /**
  * Generate mine positions using provably fair algorithm
- * FIXED: Now properly combines seeds in the correct format
+ * FIXED: Now properly deterministic - same inputs always produce same outputs
  */
 function generateMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount) {
   // CRITICAL: Combine seeds in the standard provably fair format
-  // Format: serverSeed:clientSeed:nonce (same as most casino sites)
+  // Format: serverSeed:clientSeed:nonce
   const seedStr = `${serverSeed}:${clientSeed}:${nonce}`;
   
   // Hash the combined seed string
   const hex = sha256(seedStr);
   
-  // Create multiple seed integers from different parts of the hash
-  const seedArray = hashToSeedArray(hex);
+  // Convert hash to a single seed integer (using first 8 hex chars = 32 bits)
+  const seed = parseInt(hex.slice(0, 8), 16);
   
-  // Initialize PRNG with the seed array
-  const prng = createPRNG(seedArray);
+  // Initialize PRNG with the seed
+  const prng = createPRNG(seed);
 
   // Fisher-Yates shuffle using PRNG
   const arr = Array.from({ length: gridSize }, (_, i) => i);
@@ -128,7 +107,6 @@ function generateSeedHash(serverSeed, clientSeed, nonce) {
 module.exports = {
   generateServerSeed,
   sha256,
-  hashToSeedArray,
   createPRNG,
   generateMinePositions,
   verifyMinePositions,
