@@ -1,6 +1,22 @@
 const mongoose = require('mongoose');
+const { generateServerSeed, sha256 } = require('../utils/seedUtils');
 
 const userSchema = new mongoose.Schema({
+  serverSeed: {
+    type: String,
+    default: () => generateServerSeed()
+  },
+  serverSeedHash: {
+    type: String
+  },
+  clientSeed: {
+    type: String,
+    default: 'default-client-seed'
+  },
+  nonce: {
+    type: Number,
+    default: 0
+  },
   userId: {
     type: String,
     required: true,
@@ -63,6 +79,7 @@ userSchema.methods.recordGameResult = function(betAmount, profit, won) {
   this.totalWagered += betAmount;
   this.totalProfit += profit;
   this.gamesPlayed += 1;
+  this.nonce += 1;
   if (won) {
     this.gamesWon += 1;
   } else {
@@ -70,6 +87,22 @@ userSchema.methods.recordGameResult = function(betAmount, profit, won) {
   }
   this.lastActive = Date.now();
 };
+
+// Method to rotate seed pair
+userSchema.methods.rotateSeedPair = function(newClientSeed) {
+  this.serverSeed = generateServerSeed();
+  this.serverSeedHash = sha256(this.serverSeed);
+  if (newClientSeed) this.clientSeed = newClientSeed;
+  this.nonce = 0;
+};
+
+// Pre-save hook to ensure serverSeedHash is set
+userSchema.pre('save', function(next) {
+  if (this.isNew || this.isModified('serverSeed')) {
+    this.serverSeedHash = sha256(this.serverSeed);
+  }
+  next();
+});
 
 const User = mongoose.model('User', userSchema);
 

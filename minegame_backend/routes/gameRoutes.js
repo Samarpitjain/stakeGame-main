@@ -20,4 +20,13 @@ router.get('/history/:userId', gameController.getGameHistory);
 // Verify game fairness
 router.post('/:gameId/verify', gameController.verifyGame);
 
+// Get user seeds
+router.get('/seeds/:userId', gameController.getUserSeeds);
+
+// Rotate seed pair
+router.post('/seeds/:userId/rotate', gameController.rotateSeedPair);
+
+// Update client seed
+router.post('/seeds/:userId/client', gameController.updateClientSeed);
+
 module.exports = router;

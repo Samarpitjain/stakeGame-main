@@ -8,11 +8,10 @@
 </head>
 <body>
   <script>
-    window.API_BASE_URL = 'REPLACE_ME_API_URL'; 
+    window.API_BASE_URL = 'http://localhost:5000/api'; 
   </script>
-  <!-- Main Container -->
+  
   <div class="app-container">
-    <!-- Left Sidebar - Controls -->
     <div class="sidebar">
       <div class="sidebar-header">
         <div class="logo-section">
@@ -24,13 +23,11 @@
         </div>
       </div>
 
-      <!-- Game Mode Tabs -->
       <div class="mode-tabs">
         <button class="mode-tab active" data-mode="manual">Manual</button>
         <button class="mode-tab" data-mode="auto">Auto</button>
       </div>
 
-      <!-- Manual Mode Controls -->
       <div class="controls-container" id="manual-controls">
         <div class="control-group">
           <label class="control-label">Bet Amount</label>
@@ -66,7 +63,6 @@
           <span class="btn-amount" id="cashoutAmount">₹10.00</span>
         </button>
 
-        <!-- Balance & Stats -->
         <div class="balance-section">
           <div class="balance-item">
             <span class="balance-label">Balance</span>
@@ -77,32 +73,12 @@
           </button>
         </div>
 
-        <!-- Provably Fair Section -->
-        <div class="provably-fair-section">
-          <div class="fair-header">
-            <span class="fair-icon">🔒</span>
-            <span>Provably Fair</span>
-          </div>
-          <div class="seed-info">
-            <div class="seed-item">
-              <label>Client Seed</label>
-              <input type="text" id="clientSeed" class="seed-input" value="tukda-bhai">
-            </div>
-            <div class="seed-item">
-              <label>Server Seed (Hashed)</label>
-              <div class="seed-display" id="serverSeedHash">••••••••••••••••</div>
-            </div>
-
-            <div class="seed-item">
-              <label>Nonce</label>
-              <div class="seed-display" id="nonceDisplay">0</div>
-            </div>
-          </div>
-          <a href="fair.html" class="verify-link" target="_blank">🔍 Verify Fairness</a>
-        </div>
+        <button class="fairness-btn" id="fairnessBtn">
+          <span class="fair-icon">🔒</span>
+          <span>Fairness</span>
+        </button>
       </div>
 
-      <!-- Auto Mode Controls -->
       <div class="controls-container hidden" id="auto-controls">
         <div class="control-group">
           <label class="control-label">Bet Amount</label>
@@ -113,13 +89,8 @@
         </div>
 
         <div class="control-group">
-          <label class="control-label">Number of Bets</label>
-          <input type="number" id="autoCount" class="control-input" value="10" min="1">
-        </div>
-
-        <div class="control-group">
-          <label class="control-label">Tiles per Round</label>
-          <input type="number" id="autoTiles" class="control-input" value="3" min="1" max="24">
+          <label class="control-label">Number of Rounds</label>
+          <input type="number" id="autoRounds" class="control-input" value="10" min="1">
         </div>
 
         <div class="control-group">
@@ -128,6 +99,67 @@
             <span class="mines-count" id="autoMinesDisplay">3</span>
           </label>
           <input type="range" id="autoMinesSlider" class="mines-slider" min="1" max="24" value="3">
+        </div>
+
+        <div class="control-group">
+          <label class="control-label">
+            Selected Tiles
+            <span class="mines-count" id="selectedCount">0</span>
+          </label>
+          <button class="clear-selection-btn" id="clearSelectionBtn">Clear Selection</button>
+          <p class="info-text" style="font-size: 11px; margin-top: 4px;">Click tiles on the board to select/deselect</p>
+        </div>
+
+        <div class="advanced-section">
+          <div class="advanced-toggle">
+            <span>⚙️ Advanced Settings</span>
+            <span class="toggle-icon">▼</span>
+          </div>
+          <div class="advanced-content">
+            <div class="control-group">
+              <label class="control-label">On Win</label>
+              <div class="action-group">
+                <select id="onWinAction" class="control-input action-select">
+                  <option value="reset">Reset</option>
+                  <option value="increase">Increase by %</option>
+                </select>
+                <div class="percent-input" style="display: none;">
+                  <input type="number" id="onWinPercent" class="control-input" value="0" min="0" step="1">
+                  <span class="percent-symbol">%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <label class="control-label">On Loss</label>
+              <div class="action-group">
+                <select id="onLossAction" class="control-input action-select">
+                  <option value="reset">Reset</option>
+                  <option value="increase">Increase by %</option>
+                </select>
+                <div class="percent-input" style="display: none;">
+                  <input type="number" id="onLossPercent" class="control-input" value="0" min="0" step="1">
+                  <span class="percent-symbol">%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <label class="control-label">Stop on Profit</label>
+              <div class="input-wrapper">
+                <span class="currency-symbol">₹</span>
+                <input type="number" id="stopOnProfit" class="control-input" placeholder="Optional" step="0.01">
+              </div>
+            </div>
+
+            <div class="control-group">
+              <label class="control-label">Stop on Loss</label>
+              <div class="input-wrapper">
+                <span class="currency-symbol">₹</span>
+                <input type="number" id="stopOnLoss" class="control-input" placeholder="Optional" step="0.01">
+              </div>
+            </div>
+          </div>
         </div>
 
         <button class="action-button start-button" id="autoStartBtn">
@@ -144,7 +176,6 @@
       </div>
     </div>
 
-    <!-- Center - Game Board -->
     <div class="game-area">
       <div class="game-stats">
         <div class="stat-card">
@@ -161,9 +192,7 @@
         </div>
       </div>
 
-      <div class="game-board" id="gameBoard">
-        <!-- Tiles will be generated by JavaScript -->
-      </div>
+      <div class="game-board" id="gameBoard"></div>
 
       <div class="game-info">
         <p class="info-text">💎 Click tiles to reveal gems and increase your multiplier</p>
@@ -171,7 +200,6 @@
       </div>
     </div>
 
-    <!-- Right Sidebar - Recent Games & Info -->
     <div class="right-sidebar">
       <div class="recent-games">
         <h3 class="section-title">Recent Games</h3>
@@ -196,10 +224,60 @@
     </div>
   </div>
 
-  <!-- Toast Notifications -->
+  <div class="fairness-panel" id="fairnessPanel">
+    <div class="fairness-header">
+      <h2>🔒 Provably Fair</h2>
+      <button class="close-btn" id="closeFairnessBtn">✕</button>
+    </div>
+    
+    <div class="fairness-content">
+      <div class="fairness-section">
+        <h3>Active Seeds</h3>
+        <div class="seed-item">
+          <label>Server Seed (Hashed)</label>
+          <div class="seed-display" id="activeSeedHash">Loading...</div>
+        </div>
+        <div class="seed-item">
+          <label>Client Seed</label>
+          <input type="text" id="activeClientSeed" class="seed-input" value="default-client-seed">
+        </div>
+        <div class="seed-item">
+          <label>Nonce</label>
+          <div class="seed-display" id="activeNonce">0</div>
+        </div>
+        <button class="action-button start-button" id="rotateSeedBtn">
+          <span class="btn-text">🔄 Rotate Seed Pair</span>
+        </button>
+      </div>
+
+      <div class="fairness-section">
+        <h3>Verify Fairness</h3>
+        <div class="seed-item">
+          <label>Server Seed</label>
+          <input type="text" id="verifyServerSeed" class="seed-input" placeholder="Enter server seed">
+        </div>
+        <div class="seed-item">
+          <label>Client Seed</label>
+          <input type="text" id="verifyClientSeed" class="seed-input" placeholder="Enter client seed">
+        </div>
+        <div class="seed-item">
+          <label>Nonce</label>
+          <input type="number" id="verifyNonce" class="seed-input" placeholder="Enter nonce">
+        </div>
+        <div class="seed-item">
+          <label>Mines Count</label>
+          <input type="number" id="verifyMines" class="seed-input" placeholder="Enter mines count" min="1" max="24">
+        </div>
+        <button class="action-button start-button" id="verifyBtn">
+          <span class="btn-text">✓ Verify</span>
+        </button>
+        <div id="verifyResult"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- Sounds -->
   <audio id="clickSound" src="sounds/click.mp3" preload="auto"></audio>
   <audio id="bombSound" src="sounds/bomb.mp3" preload="auto"></audio>
 

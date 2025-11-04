@@ -10,75 +10,48 @@ const {
 
 // 🧩 CREATE GAME
 exports.createGame = async (req, res) => {
-  console.log('\n🎮 [CREATE GAME] Request received');
   try {
-    const { userId, betAmount, minesCount, clientSeed, nonce } = req.body;
-    console.log('➡️ Request body:', req.body);
+    const { userId, betAmount, minesCount } = req.body;
 
-    if (!userId || !betAmount || !minesCount || !clientSeed) {
-      console.log('⚠️ Missing required fields');
-      return res.status(400).json({ error: 'Missing required fields: userId, betAmount, minesCount, clientSeed' });
+    if (!userId || !betAmount || !minesCount) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    if (betAmount < 1) {
-      console.log('⚠️ Invalid bet amount:', betAmount);
-      return res.status(400).json({ error: 'Bet amount must be at least 1' });
+    if (betAmount < 1 || minesCount < 1 || minesCount > 24) {
+      return res.status(400).json({ error: 'Invalid parameters' });
     }
 
-    if (minesCount < 1 || minesCount > 24) {
-      console.log('⚠️ Invalid mines count:', minesCount);
-      return res.status(400).json({ error: 'Mines count must be between 1 and 24' });
-    }
-
-    console.log('🔍 Fetching user from DB...');
     let user = await User.findOne({ userId });
     if (!user) {
-      console.log('👤 User not found — creating new user');
       user = new User({ userId, username: userId, balance: 1000 });
       await user.save();
-      console.log('💾 New user saved:', user);
     }
 
-    console.log(`💰 Checking balance: ${user.balance} vs bet ${betAmount}`);
     if (user.balance < betAmount) {
-      console.log('❌ Insufficient balance');
-      return res.status(400).json({ error: 'Insufficient balance', balance: user.balance, required: betAmount });
+      return res.status(400).json({ error: 'Insufficient balance' });
     }
-
-    console.log('🧠 Generating server seed...');
-    const serverSeed = generateServerSeed();
-    const serverSeedHash = sha256(serverSeed);
-    console.log('🔐 Server seed hash:', serverSeedHash);
 
     const gridSize = 25;
-    const gameNonce = nonce || 1;
-    console.log('🎲 Generating mine positions...');
-    const minePositions = generateMinePositions(serverSeed, clientSeed, gameNonce, gridSize, minesCount);
-    console.log('💣 Mines:', minePositions);
+    const minePositions = generateMinePositions(user.serverSeed, user.clientSeed, user.nonce, gridSize, minesCount);
 
-    console.log('🆕 Creating new game object...');
     const game = new Game({
       userId,
       betAmount,
       minesCount,
       gridSize,
-      serverSeed,
-      serverSeedHash,
-      clientSeed,
-      nonce: gameNonce,
+      serverSeed: user.serverSeed,
+      serverSeedHash: user.serverSeedHash,
+      clientSeed: user.clientSeed,
+      nonce: user.nonce,
       minePositions,
       status: 'active',
       currentMultiplier: 1.0
     });
 
     await game.save();
-    console.log('💾 Game saved:', game._id);
-
     user.updateBalance(-betAmount);
     await user.save();
-    console.log(`💸 Deducted bet. New balance: ${user.balance}`);
 
-    console.log('📤 Sending create game response...');
     res.status(201).json({
       success: true,
       game: {
@@ -94,47 +67,29 @@ exports.createGame = async (req, res) => {
       },
       balance: user.balance
     });
-    console.log('✅ [CREATE GAME] Completed successfully');
   } catch (error) {
-    console.error('❌ [CREATE GAME] Error:', error);
-    res.status(500).json({ error: 'Failed to create game', details: error.message });
+    res.status(500).json({ error: 'Failed to create game' });
   }
 };
 
 // 💥 REVEAL TILE
 exports.revealTile = async (req, res) => {
-  console.log('\n🧱 [REVEAL TILE] Request received');
   try {
     const { gameId } = req.params;
     const { tileIndex } = req.body;
-    console.log(`➡️ Game ID: ${gameId}, Tile Index: ${tileIndex}`);
 
     if (tileIndex === undefined || tileIndex < 0 || tileIndex > 24) {
-      console.log('⚠️ Invalid tile index');
       return res.status(400).json({ error: 'Invalid tile index' });
     }
 
     const game = await Game.findById(gameId);
-    if (!game) {
-      console.log('❌ Game not found');
-      return res.status(404).json({ error: 'Game not found' });
-    }
-
-    if (game.status !== 'active') {
-      console.log('⚠️ Game not active');
-      return res.status(400).json({ error: 'Game is not active' });
-    }
-
-    if (game.revealedTiles.includes(tileIndex)) {
-      console.log('⚠️ Tile already revealed');
-      return res.status(400).json({ error: 'Tile already revealed' });
+    if (!game || game.status !== 'active' || game.revealedTiles.includes(tileIndex)) {
+      return res.status(400).json({ error: 'Invalid game state' });
     }
 
     const isMine = game.minePositions.includes(tileIndex);
-    console.log(`🎯 Tile ${tileIndex} is ${isMine ? 'a MINE 💣' : 'safe ✅'}`);
 
     if (isMine) {
-      console.log('💥 Player hit a mine — game lost');
       game.revealedTiles.push(tileIndex);
       game.status = 'lost';
       game.endedAt = new Date();
@@ -146,7 +101,6 @@ exports.revealTile = async (req, res) => {
       if (user) {
         user.recordGameResult(game.betAmount, game.profit, false);
         await user.save();
-        console.log('📉 User stats updated');
       }
 
       return res.json({
@@ -161,10 +115,10 @@ exports.revealTile = async (req, res) => {
           serverSeed: game.serverSeed,
           minePositions: game.minePositions
         },
-        balance: user ? user.balance : 0
+        balance: user ? user.balance : 0,
+        nonce: user ? user.nonce : 0
       });
     } else {
-      console.log('✅ Safe tile — calculating new multiplier');
       game.revealedTiles.push(tileIndex);
       game.currentMultiplier = calculateMultiplier(
         game.currentMultiplier,
@@ -174,7 +128,6 @@ exports.revealTile = async (req, res) => {
       );
       await game.save();
 
-      console.log(`🧮 Updated multiplier: ${game.currentMultiplier}`);
       return res.json({
         success: true,
         isMine: false,
@@ -188,37 +141,22 @@ exports.revealTile = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('❌ [REVEAL TILE] Error:', error);
-    res.status(500).json({ error: 'Failed to reveal tile', details: error.message });
+    res.status(500).json({ error: 'Failed to reveal tile' });
   }
 };
 
 // 💰 CASHOUT
 exports.cashout = async (req, res) => {
-  console.log('\n💵 [CASHOUT] Request received');
   try {
     const { gameId } = req.params;
-    console.log(`➡️ Game ID: ${gameId}`);
 
     const game = await Game.findById(gameId);
-    if (!game) {
-      console.log('❌ Game not found');
-      return res.status(404).json({ error: 'Game not found' });
-    }
-
-    if (game.status !== 'active') {
-      console.log('⚠️ Game not active');
-      return res.status(400).json({ error: 'Game is not active' });
-    }
-
-    if (game.revealedTiles.length === 0) {
-      console.log('⚠️ No tiles revealed yet');
-      return res.status(400).json({ error: 'No tiles revealed yet' });
+    if (!game || game.status !== 'active' || game.revealedTiles.length === 0) {
+      return res.status(400).json({ error: 'Invalid game state' });
     }
 
     const payout = game.betAmount * game.currentMultiplier;
     const profit = payout - game.betAmount;
-    console.log(`💰 Payout: ${payout}, Profit: ${profit}`);
 
     game.status = 'cashed_out';
     game.payoutAmount = payout;
@@ -231,7 +169,6 @@ exports.cashout = async (req, res) => {
       user.updateBalance(payout);
       user.recordGameResult(game.betAmount, profit, true);
       await user.save();
-      console.log('💾 User balance and stats updated');
     }
 
     res.json({
@@ -245,27 +182,20 @@ exports.cashout = async (req, res) => {
         serverSeed: game.serverSeed,
         minePositions: game.minePositions
       },
-      balance: user ? user.balance : 0
+      balance: user ? user.balance : 0,
+      nonce: user ? user.nonce : 0
     });
-    console.log('✅ [CASHOUT] Completed successfully');
   } catch (error) {
-    console.error('❌ [CASHOUT] Error:', error);
-    res.status(500).json({ error: 'Failed to cash out', details: error.message });
+    res.status(500).json({ error: 'Failed to cash out' });
   }
 };
 
 // 🕹️ GET GAME
 exports.getGame = async (req, res) => {
-  console.log('\n📋 [GET GAME] Request received');
   try {
     const { gameId } = req.params;
-    console.log(`➡️ Game ID: ${gameId}`);
-
     const game = await Game.findById(gameId);
-    if (!game) {
-      console.log('❌ Game not found');
-      return res.status(404).json({ error: 'Game not found' });
-    }
+    if (!game) return res.status(404).json({ error: 'Game not found' });
 
     const response = {
       _id: game._id,
@@ -288,24 +218,19 @@ exports.getGame = async (req, res) => {
     if (game.status !== 'active') {
       response.serverSeed = game.serverSeed;
       response.minePositions = game.minePositions;
-      console.log('🧩 Including full game details (inactive)');
     }
 
     res.json(response);
-    console.log('✅ [GET GAME] Response sent');
   } catch (error) {
-    console.error('❌ [GET GAME] Error:', error);
-    res.status(500).json({ error: 'Failed to get game', details: error.message });
+    res.status(500).json({ error: 'Failed to get game' });
   }
 };
 
 // 🧾 GAME HISTORY
 exports.getGameHistory = async (req, res) => {
-  console.log('\n📜 [GET GAME HISTORY] Request received');
   try {
     const { userId } = req.params;
     const { limit = 20, skip = 0 } = req.query;
-    console.log(`➡️ userId: ${userId}, limit: ${limit}, skip: ${skip}`);
 
     const games = await Game.find({ userId })
       .sort({ createdAt: -1 })
@@ -314,40 +239,23 @@ exports.getGameHistory = async (req, res) => {
       .select('-serverSeed -minePositions');
 
     const total = await Game.countDocuments({ userId });
-    console.log(`📊 Found ${games.length} games (total: ${total})`);
-
     res.json({ games, total, limit: parseInt(limit), skip: parseInt(skip) });
-    console.log('✅ [GET GAME HISTORY] Sent successfully');
   } catch (error) {
-    console.error('❌ [GET GAME HISTORY] Error:', error);
-    res.status(500).json({ error: 'Failed to get game history', details: error.message });
+    res.status(500).json({ error: 'Failed to get game history' });
   }
 };
 
 // ✅ VERIFY GAME
 exports.verifyGame = async (req, res) => {
-  console.log('\n🔍 [VERIFY GAME] Request received');
   try {
     const { gameId } = req.params;
-    console.log(`➡️ Game ID: ${gameId}`);
-
     const game = await Game.findById(gameId);
-    if (!game) {
-      console.log('❌ Game not found');
-      return res.status(404).json({ error: 'Game not found' });
+    if (!game || game.status === 'active') {
+      return res.status(400).json({ error: 'Cannot verify' });
     }
 
-    if (game.status === 'active') {
-      console.log('⚠️ Cannot verify active game');
-      return res.status(400).json({ error: 'Cannot verify active game' });
-    }
-
-    console.log('🔐 Verifying server seed hash...');
     const computedHash = sha256(game.serverSeed);
     const hashMatches = computedHash === game.serverSeedHash;
-    console.log('🧮 Hash match:', hashMatches);
-
-    console.log('💣 Verifying mine positions...');
     const positionsMatch = verifyMinePositions(
       game.serverSeed,
       game.clientSeed,
@@ -356,7 +264,6 @@ exports.verifyGame = async (req, res) => {
       game.minesCount,
       game.minePositions
     );
-    console.log('✅ Positions match:', positionsMatch);
 
     res.json({
       verified: hashMatches && positionsMatch,
@@ -369,10 +276,65 @@ exports.verifyGame = async (req, res) => {
       nonce: game.nonce,
       minePositions: game.minePositions
     });
-    console.log('✅ [VERIFY GAME] Completed successfully');
   } catch (error) {
-    console.error('❌ [VERIFY GAME] Error:', error);
-    res.status(500).json({ error: 'Failed to verify game', details: error.message });
+    res.status(500).json({ error: 'Failed to verify game' });
+  }
+};
+
+// Get user seeds
+exports.getUserSeeds = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({
+      serverSeedHash: user.serverSeedHash,
+      clientSeed: user.clientSeed,
+      nonce: user.nonce
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get seeds' });
+  }
+};
+
+// Rotate seed pair
+exports.rotateSeedPair = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { clientSeed } = req.body;
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const oldServerSeed = user.serverSeed;
+    user.rotateSeedPair(clientSeed);
+    await user.save();
+
+    res.json({
+      oldServerSeed,
+      newServerSeedHash: user.serverSeedHash,
+      clientSeed: user.clientSeed,
+      nonce: user.nonce
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to rotate seeds' });
+  }
+};
+
+// Update client seed
+exports.updateClientSeed = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { clientSeed } = req.body;
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.clientSeed = clientSeed;
+    await user.save();
+
+    res.json({ clientSeed: user.clientSeed });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update client seed' });
   }
 };
 
