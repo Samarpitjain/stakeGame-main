@@ -624,6 +624,17 @@ async function startAutoBet() {
   STATE.autoConfig.rounds = rounds;
   STATE.autoConfig.delay = parseInt(document.getElementById('autoDelay')?.value || 500);
   
+  // Read advanced settings
+  const onWinBtn = document.querySelector('#advancedSettings .button-group:nth-child(1) .group-btn.active');
+  const onLoseBtn = document.querySelector('#advancedSettings .button-group:nth-child(3) .group-btn.active');
+  
+  STATE.autoConfig.onWin = onWinBtn?.dataset.value || 'reset';
+  STATE.autoConfig.onLose = onLoseBtn?.dataset.value || 'reset';
+  STATE.autoConfig.onWinPercent = parseFloat(document.getElementById('onWinPercent')?.value || 0);
+  STATE.autoConfig.onLosePercent = parseFloat(document.getElementById('onLosePercent')?.value || 0);
+  STATE.autoConfig.stopOnProfit = parseFloat(document.getElementById('stopProfit')?.value) || null;
+  STATE.autoConfig.stopOnLoss = parseFloat(document.getElementById('stopLoss')?.value) || null;
+  
   STATE.autoRunning = true;
   STATE.autoStats = { currentRound: 0, totalProfit: 0, wins: 0, losses: 0 };
   STATE.bet = bet;
