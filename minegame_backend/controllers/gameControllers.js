@@ -36,14 +36,25 @@ exports.createGame = async (req, res) => {
 
     const gridSize = 25;
     
+    // ⚠️ CRITICAL FIX: Use CURRENT nonce BEFORE incrementing
+    const gameNonce = user.nonce;
+    
+    console.log('🎮 CREATE GAME - SEED INFO:');
+    console.log('Server Seed (Hidden):', user.serverSeed);
+    console.log('Server Seed Hash:', user.serverSeedHash);
+    console.log('Client Seed:', user.clientSeed);
+    console.log('Nonce (CURRENT):', gameNonce);
+    
     // Generate mine positions using CURRENT seed pair + nonce
     const minePositions = generateMinePositions(
       user.serverSeed,
       user.clientSeed,
-      user.nonce,
+      gameNonce, // Use current nonce
       gridSize,
       minesCount
     );
+    
+    console.log('Generated Mine Positions:', minePositions);
 
     // Create game with HIDDEN server seed
     const game = new Game({
@@ -54,7 +65,7 @@ exports.createGame = async (req, res) => {
       serverSeed: user.serverSeed, // Stored but NOT revealed
       serverSeedHash: user.serverSeedHash,
       clientSeed: user.clientSeed,
-      nonce: user.nonce,
+      nonce: gameNonce, // Store the nonce that was ACTUALLY USED
       minePositions,
       status: 'active',
       currentMultiplier: 1.0
@@ -62,12 +73,18 @@ exports.createGame = async (req, res) => {
 
     await game.save();
     
+    console.log('Game Created with ID:', game._id);
+    console.log('Game Nonce Stored:', game.nonce);
+    
     // Deduct bet amount
     user.updateBalance(-betAmount);
     
-    // Increment nonce for next game (STAKE BEHAVIOR)
+    // NOW increment nonce for NEXT game (AFTER storing current one)
     user.incrementNonce();
     await user.save();
+    
+    console.log('User Nonce AFTER increment (for next game):', user.nonce);
+    console.log('─────────────────────────────────────────\n');
 
     // Response WITHOUT unhashed server seed
     res.status(201).json({
@@ -79,7 +96,7 @@ exports.createGame = async (req, res) => {
         gridSize: game.gridSize,
         serverSeedHash: game.serverSeedHash, // Only hash shown
         clientSeed: game.clientSeed,
-        nonce: game.nonce,
+        nonce: game.nonce, // The nonce USED for this game
         currentMultiplier: game.currentMultiplier,
         status: game.status
       },
@@ -87,7 +104,7 @@ exports.createGame = async (req, res) => {
       nextNonce: user.nonce // Next nonce for next game
     });
   } catch (error) {
-    console.error('Create game error:', error);
+    console.error('❌ Create game error:', error);
     res.status(500).json({ error: 'Failed to create game' });
   }
 };
@@ -111,9 +128,13 @@ exports.revealTile = async (req, res) => {
       return res.status(400).json({ error: 'Tile already revealed' });
     }
 
+    console.log(`\n🎯 REVEAL TILE ${tileIndex} - Game ${gameId}`);
+
     const isMine = game.minePositions.includes(tileIndex);
 
     if (isMine) {
+      console.log('💥 HIT A MINE!');
+      
       // HIT A MINE - Game Lost
       game.revealedTiles.push(tileIndex);
       game.status = 'lost';
@@ -128,7 +149,6 @@ exports.revealTile = async (req, res) => {
         await user.save();
       }
 
-      // ⚠️ STILL DON'T REVEAL SERVER SEED - Only on rotation
       return res.json({
         success: false,
         isMine: true,
@@ -138,12 +158,13 @@ exports.revealTile = async (req, res) => {
           revealedTiles: game.revealedTiles,
           currentMultiplier: game.currentMultiplier,
           profit: game.profit,
-          minePositions: game.minePositions, // Show mine positions after loss
-          // NO serverSeed here - user must rotate to see it
+          minePositions: game.minePositions,
         },
         balance: user ? user.balance : 0
       });
     } else {
+      console.log('✅ Safe tile!');
+      
       // Safe tile revealed
       game.revealedTiles.push(tileIndex);
       game.currentMultiplier = calculateMultiplier(
@@ -167,7 +188,7 @@ exports.revealTile = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Reveal tile error:', error);
+    console.error('❌ Reveal tile error:', error);
     res.status(500).json({ error: 'Failed to reveal tile' });
   }
 };
@@ -182,8 +203,13 @@ exports.cashout = async (req, res) => {
       return res.status(400).json({ error: 'Invalid game state' });
     }
 
+    console.log(`\n💰 CASHOUT - Game ${gameId}`);
+
     const payout = game.betAmount * game.currentMultiplier;
     const profit = payout - game.betAmount;
+
+    console.log('Payout Amount:', payout);
+    console.log('Profit:', profit);
 
     game.status = 'cashed_out';
     game.payoutAmount = payout;
@@ -198,7 +224,6 @@ exports.cashout = async (req, res) => {
       await user.save();
     }
 
-    // ⚠️ STILL DON'T REVEAL SERVER SEED - Only on rotation
     res.json({
       success: true,
       game: {
@@ -207,13 +232,12 @@ exports.cashout = async (req, res) => {
         payoutAmount: game.payoutAmount,
         profit: game.profit,
         currentMultiplier: game.currentMultiplier,
-        minePositions: game.minePositions, // Show positions after cashout
-        // NO serverSeed here - user must rotate to see it
+        minePositions: game.minePositions,
       },
       balance: user ? user.balance : 0
     });
   } catch (error) {
-    console.error('Cashout error:', error);
+    console.error('❌ Cashout error:', error);
     res.status(500).json({ error: 'Failed to cash out' });
   }
 };
@@ -222,16 +246,33 @@ exports.cashout = async (req, res) => {
 exports.rotateSeedPair = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { clientSeed } = req.body; // Optional new client seed
+    const { clientSeed } = req.body;
 
     const user = await User.findOne({ userId });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    console.log('\n🔄 ROTATING SEED PAIR');
+    console.log('─────────────────────────────────────────');
+    console.log('BEFORE ROTATION:');
+    console.log('Current Server Seed (will be revealed):', user.serverSeed);
+    console.log('Current Server Seed Hash:', user.serverSeedHash);
+    console.log('Current Client Seed:', user.clientSeed);
+    console.log('Current Nonce:', user.nonce);
+    console.log('─────────────────────────────────────────');
+
     // Rotate and get revealed seed
     const rotation = user.rotateSeedPair(clientSeed);
     await user.save();
+
+    console.log('AFTER ROTATION:');
+    console.log('Revealed Server Seed (previous):', rotation.revealedServerSeed);
+    console.log('New Server Seed (hidden):', user.serverSeed);
+    console.log('New Server Seed Hash:', rotation.newServerSeedHash);
+    console.log('New Client Seed:', rotation.newClientSeed);
+    console.log('New Nonce:', rotation.newNonce);
+    console.log('─────────────────────────────────────────\n');
 
     res.json({
       success: true,
@@ -243,13 +284,13 @@ exports.rotateSeedPair = async (req, res) => {
         finalNonce: user.previousNonce
       },
       next: {
-        serverSeedHash: rotation.newServerSeedHash, // New hash (seed hidden)
+        serverSeedHash: rotation.newServerSeedHash,
         clientSeed: rotation.newClientSeed,
         nonce: rotation.newNonce
       }
     });
   } catch (error) {
-    console.error('Rotate seed error:', error);
+    console.error('❌ Rotate seed error:', error);
     res.status(500).json({ error: 'Failed to rotate seed pair' });
   }
 };
@@ -263,21 +304,30 @@ exports.getCurrentSeeds = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    console.log('\n📊 GET CURRENT SEEDS');
+    console.log('Current Server Seed Hash:', user.serverSeedHash);
+    console.log('Current Client Seed:', user.clientSeed);
+    console.log('Current Nonce:', user.nonce);
+    if (user.previousServerSeed) {
+      console.log('Previous Server Seed (Revealed):', user.previousServerSeed);
+    }
+    console.log('─────────────────────────────────────────\n');
+
     res.json({
       current: {
-        serverSeedHash: user.serverSeedHash, // Only hash
+        serverSeedHash: user.serverSeedHash,
         clientSeed: user.clientSeed,
         nonce: user.nonce
       },
       previous: user.previousServerSeed ? {
-        serverSeed: user.previousServerSeed, // Revealed from last rotation
+        serverSeed: user.previousServerSeed,
         serverSeedHash: user.previousServerSeedHash,
         clientSeed: user.previousClientSeed,
         finalNonce: user.previousNonce
       } : null
     });
   } catch (error) {
-    console.error('Get seeds error:', error);
+    console.error('❌ Get seeds error:', error);
     res.status(500).json({ error: 'Failed to get seeds' });
   }
 };
@@ -297,6 +347,11 @@ exports.updateClientSeed = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    console.log('\n✏️ UPDATE CLIENT SEED');
+    console.log('Old Client Seed:', user.clientSeed);
+    console.log('New Client Seed:', clientSeed);
+    console.log('─────────────────────────────────────────\n');
+
     user.clientSeed = clientSeed;
     await user.save();
 
@@ -306,7 +361,7 @@ exports.updateClientSeed = async (req, res) => {
       message: 'Client seed updated successfully'
     });
   } catch (error) {
-    console.error('Update client seed error:', error);
+    console.error('❌ Update client seed error:', error);
     res.status(500).json({ error: 'Failed to update client seed' });
   }
 };
@@ -327,7 +382,7 @@ exports.getGame = async (req, res) => {
       betAmount: game.betAmount,
       minesCount: game.minesCount,
       gridSize: game.gridSize,
-      serverSeedHash: game.serverSeedHash, // Always show hash
+      serverSeedHash: game.serverSeedHash,
       clientSeed: game.clientSeed,
       nonce: game.nonce,
       revealedTiles: game.revealedTiles,
@@ -339,15 +394,13 @@ exports.getGame = async (req, res) => {
       endedAt: game.endedAt
     };
 
-    // Show mine positions and seed only if game ended
     if (game.status !== 'active') {
       response.minePositions = game.minePositions;
-      // Still don't show serverSeed - user must rotate to see it
     }
 
     res.json(response);
   } catch (error) {
-    console.error('Get game error:', error);
+    console.error('❌ Get game error:', error);
     res.status(500).json({ error: 'Failed to get game' });
   }
 };
@@ -362,7 +415,7 @@ exports.getGameHistory = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(skip))
-      .select('-serverSeed'); // Never expose server seed in history
+      .select('-serverSeed');
 
     const total = await Game.countDocuments({ userId });
     
@@ -373,7 +426,7 @@ exports.getGameHistory = async (req, res) => {
       skip: parseInt(skip) 
     });
   } catch (error) {
-    console.error('Get history error:', error);
+    console.error('❌ Get history error:', error);
     res.status(500).json({ error: 'Failed to get game history' });
   }
 };
@@ -394,14 +447,26 @@ exports.verifyGame = async (req, res) => {
       });
     }
 
-    // Get user to check if seed has been revealed
     const user = await User.findOne({ userId: game.userId });
     
-    // Check if this game's seed has been revealed (user rotated after this game)
+    console.log('\n✅ VERIFY GAME:', gameId);
+    console.log('─────────────────────────────────────────');
+    console.log('Game Nonce:', game.nonce);
+    console.log('Game Client Seed:', game.clientSeed);
+    console.log('Game Server Seed Hash:', game.serverSeedHash);
+    console.log('Game Mine Positions:', game.minePositions);
+    console.log('─────────────────────────────────────────');
+    
+    // Check if this game's seed has been revealed
     const isRevealed = user.previousServerSeed && 
                        user.previousNonce >= game.nonce;
 
+    console.log('Previous Server Seed:', user.previousServerSeed);
+    console.log('Previous Nonce:', user.previousNonce);
+    console.log('Is Revealed:', isRevealed);
+
     if (!isRevealed) {
+      console.log('❌ Seed not yet revealed\n');
       return res.json({
         verified: false,
         message: 'Server seed not yet revealed. Rotate your seed pair to verify this game.',
@@ -413,6 +478,19 @@ exports.verifyGame = async (req, res) => {
     const computedHash = sha256(user.previousServerSeed);
     const hashMatches = computedHash === game.serverSeedHash;
     
+    console.log('Computed Hash:', computedHash);
+    console.log('Hash Matches:', hashMatches);
+    
+    const regeneratedPositions = generateMinePositions(
+      user.previousServerSeed,
+      game.clientSeed,
+      game.nonce,
+      game.gridSize,
+      game.minesCount
+    );
+    
+    console.log('Regenerated Mine Positions:', regeneratedPositions);
+    
     const positionsMatch = verifyMinePositions(
       user.previousServerSeed,
       game.clientSeed,
@@ -421,21 +499,25 @@ exports.verifyGame = async (req, res) => {
       game.minesCount,
       game.minePositions
     );
+    
+    console.log('Positions Match:', positionsMatch);
+    console.log('─────────────────────────────────────────\n');
 
     res.json({
       verified: hashMatches && positionsMatch,
       canVerify: true,
-      serverSeed: user.previousServerSeed, // Now revealed
+      serverSeed: user.previousServerSeed,
       serverSeedHash: game.serverSeedHash,
       computedHash,
       hashMatches,
       positionsMatch,
       clientSeed: game.clientSeed,
       nonce: game.nonce,
-      minePositions: game.minePositions
+      minePositions: game.minePositions,
+      regeneratedPositions
     });
   } catch (error) {
-    console.error('Verify game error:', error);
+    console.error('❌ Verify game error:', error);
     res.status(500).json({ error: 'Failed to verify game' });
   }
 };

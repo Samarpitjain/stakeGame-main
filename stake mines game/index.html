@@ -1,285 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mines - Stake Style Casino Game</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mines - Provably Fair Casino</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <script>
-    window.API_BASE_URL = 'http://localhost:5000/api'; 
-  </script>
-  
-  <div class="app-container">
-    <div class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo-section">
-          <div class="logo-icon">💣</div>
-          <div class="logo-text">
-            <h1>MINES</h1>
-            <span class="subtitle">Stake Originals</span>
-          </div>
-        </div>
+  <div class="container">
+    <div class="header">
+      <div class="logo">
+        <span class="logo-icon">💣</span>
+        <span>MINES</span>
       </div>
-
-      <div class="mode-tabs">
-        <button class="mode-tab active" data-mode="manual">Manual</button>
-        <button class="mode-tab" data-mode="auto">Auto</button>
+      <div class="balance-display">
+        <span style="font-size: 14px; color: #94a3b8;">Balance:</span>
+        <span class="balance-amount" id="balance">₹0.00</span>
+        <button class="add-funds-btn" id="addFundsBtn">+ Add ₹1000</button>
       </div>
+    </div>
 
-      <div class="controls-container" id="manual-controls">
+    <div class="main-content">
+      <div class="control-panel">
         <div class="control-group">
           <label class="control-label">Bet Amount</label>
           <div class="input-wrapper">
-            <span class="currency-symbol">₹</span>
-            <input type="number" id="betAmount" class="control-input" value="10.00" min="1" step="0.01">
-            <div class="bet-buttons">
-              <button class="bet-btn" data-action="half">½</button>
-              <button class="bet-btn" data-action="double">2×</button>
-            </div>
+            <input type="number" id="betAmount" class="control-input" value="10" min="1" step="0.01">
+          </div>
+          <div class="bet-actions">
+            <button class="bet-btn" data-action="half">½ Half</button>
+            <button class="bet-btn" data-action="double">2× Double</button>
           </div>
         </div>
 
         <div class="control-group">
-          <label class="control-label">
-            Mines
-            <span class="mines-count" id="minesDisplay">3</span>
-          </label>
+          <label class="control-label">Mines: <span id="minesCount">3</span></label>
           <input type="range" id="minesSlider" class="mines-slider" min="1" max="24" value="3">
-          <div class="mines-grid-visual">
-            <span class="mine-indicator">💎 <span id="gemsCount">22</span></span>
-            <span class="mine-indicator">💣 <span id="minesCount">3</span></span>
+          <div class="mines-info">
+            <span>💎 Gems: <span id="gemsCount">22</span></span>
+            <span>💣 Mines: <span id="minesDisplay">3</span></span>
           </div>
         </div>
 
-        <button class="action-button start-button" id="startBtn">
-          <span class="btn-text">START GAME</span>
+        <button class="action-btn start-btn" id="startBtn">Start Game</button>
+        <button class="action-btn cashout-btn hidden" id="cashoutBtn">
+          Cashout <span id="cashoutAmount">₹0.00</span>
         </button>
-
-        <button class="action-button cashout-button hidden" id="cashoutBtn">
-          <span class="btn-icon">💰</span>
-          <span class="btn-text">CASHOUT</span>
-          <span class="btn-amount" id="cashoutAmount">₹10.00</span>
-        </button>
-
-        <div class="balance-section">
-          <div class="balance-item">
-            <span class="balance-label">Balance</span>
-            <span class="balance-value" id="balanceDisplay">₹1,000.00</span>
-          </div>
-          <button class="add-funds-btn" id="addFundsBtn">
-            <span>+ ADD FUNDS</span>
-          </button>
-        </div>
 
         <button class="fairness-btn" id="fairnessBtn">
-          <span class="fair-icon">🔒</span>
-          <span>Fairness</span>
+          🔒 Provably Fair
         </button>
       </div>
 
-      <div class="controls-container hidden" id="auto-controls">
-        <div class="control-group">
-          <label class="control-label">Bet Amount</label>
-          <div class="input-wrapper">
-            <span class="currency-symbol">₹</span>
-            <input type="number" id="autoBetAmount" class="control-input" value="10.00" min="1" step="0.01">
+      <div class="game-area">
+        <div class="stats-bar">
+          <div class="stat-card">
+            <div class="stat-label">Profit</div>
+            <div class="stat-value" id="profit">₹0.00</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Multiplier</div>
+            <div class="stat-value" id="multiplier">1.00x</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Revealed</div>
+            <div class="stat-value" id="revealed">0 / 22</div>
           </div>
         </div>
 
-        <div class="control-group">
-          <label class="control-label">Number of Rounds</label>
-          <input type="number" id="autoRounds" class="control-input" value="10" min="1">
-        </div>
+        <div class="game-board" id="gameBoard"></div>
 
-        <div class="control-group">
-          <label class="control-label">
-            Mines
-            <span class="mines-count" id="autoMinesDisplay">3</span>
-          </label>
-          <input type="range" id="autoMinesSlider" class="mines-slider" min="1" max="24" value="3">
-        </div>
-
-        <div class="control-group">
-          <label class="control-label">
-            Selected Tiles
-            <span class="mines-count" id="selectedCount">0</span>
-          </label>
-          <button class="clear-selection-btn" id="clearSelectionBtn">Clear Selection</button>
-          <p class="info-text" style="font-size: 11px; margin-top: 4px;">Click tiles on the board to select/deselect</p>
-        </div>
-
-        <div class="advanced-section">
-          <div class="advanced-toggle">
-            <span>⚙️ Advanced Settings</span>
-            <span class="toggle-icon">▼</span>
-          </div>
-          <div class="advanced-content">
-            <div class="control-group">
-              <label class="control-label">On Win</label>
-              <div class="action-group">
-                <select id="onWinAction" class="control-input action-select">
-                  <option value="reset">Reset</option>
-                  <option value="increase">Increase by %</option>
-                </select>
-                <div class="percent-input" style="display: none;">
-                  <input type="number" id="onWinPercent" class="control-input" value="0" min="0" step="1">
-                  <span class="percent-symbol">%</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="control-group">
-              <label class="control-label">On Loss</label>
-              <div class="action-group">
-                <select id="onLossAction" class="control-input action-select">
-                  <option value="reset">Reset</option>
-                  <option value="increase">Increase by %</option>
-                </select>
-                <div class="percent-input" style="display: none;">
-                  <input type="number" id="onLossPercent" class="control-input" value="0" min="0" step="1">
-                  <span class="percent-symbol">%</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="control-group">
-              <label class="control-label">Stop on Profit</label>
-              <div class="input-wrapper">
-                <span class="currency-symbol">₹</span>
-                <input type="number" id="stopOnProfit" class="control-input" placeholder="Optional" step="0.01">
-              </div>
-            </div>
-
-            <div class="control-group">
-              <label class="control-label">Stop on Loss</label>
-              <div class="input-wrapper">
-                <span class="currency-symbol">₹</span>
-                <input type="number" id="stopOnLoss" class="control-input" placeholder="Optional" step="0.01">
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <button class="action-button start-button" id="autoStartBtn">
-          <span class="btn-text">START AUTO</span>
-        </button>
-
-        <button class="action-button stop-button hidden" id="autoStopBtn">
-          <span class="btn-text">STOP AUTO</span>
-        </button>
-
-        <div class="auto-status">
-          <span>Status: <span id="autoStatus">Idle</span></span>
-        </div>
-      </div>
-    </div>
-
-    <div class="game-area">
-      <div class="game-stats">
-        <div class="stat-card">
-          <span class="stat-label">Total Profit</span>
-          <span class="stat-value profit-value" id="profitDisplay">₹0.00</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Multiplier</span>
-          <span class="stat-value multiplier-value" id="multiplierDisplay">1.00x</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-label">Gems</span>
-          <span class="stat-value gems-value" id="gemsRevealedDisplay">0 / 22</span>
-        </div>
+        <p class="info-text">💎 Click tiles to reveal gems • 💣 Avoid mines • 💰 Cashout anytime</p>
       </div>
 
-      <div class="game-board" id="gameBoard"></div>
-
-      <div class="game-info">
-        <p class="info-text">💎 Click tiles to reveal gems and increase your multiplier</p>
-        <p class="info-text">💣 Avoid mines or lose everything</p>
-      </div>
-    </div>
-
-    <div class="right-sidebar">
-      <div class="recent-games">
-        <h3 class="section-title">Recent Games</h3>
-        <div class="recent-list" id="recentGames">
-          <div class="empty-state">
-            <span class="empty-icon">🎮</span>
-            <span>Play your first game!</span>
-          </div>
+      <div class="right-panel">
+        <div class="panel-card">
+          <div class="panel-title">Recent Games</div>
+          <div id="historyList"></div>
         </div>
-      </div>
 
-      <div class="game-rules">
-        <h3 class="section-title">How to Play</h3>
-        <ul class="rules-list">
-          <li>💰 Set your bet amount</li>
-          <li>💣 Choose number of mines (1-24)</li>
-          <li>🎯 Click tiles to reveal gems</li>
-          <li>📈 Each gem increases multiplier</li>
-          <li>💵 Cash out before hitting a mine!</li>
-        </ul>
+        <div class="panel-card">
+          <div class="panel-title">How to Play</div>
+          <ul style="font-size: 13px; color: #94a3b8; line-height: 1.8; padding-left: 20px;">
+            <li>Set your bet amount</li>
+            <li>Choose number of mines</li>
+            <li>Click tiles to reveal gems</li>
+            <li>Each gem increases multiplier</li>
+            <li>Cashout before hitting a mine!</li>
+          </ul>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="fairness-panel" id="fairnessPanel">
-    <div class="fairness-header">
-      <h2>🔒 Provably Fair</h2>
-      <button class="close-btn" id="closeFairnessBtn">✕</button>
-    </div>
-    
-    <div class="fairness-content">
-      <div class="fairness-section">
-        <h3>Active Seeds</h3>
-        <div class="seed-item">
-          <label>Server Seed (Hashed)</label>
-          <div class="seed-display" id="activeSeedHash">Loading...</div>
-        </div>
-        <div class="seed-item">
-          <label>Client Seed</label>
-          <input type="text" id="activeClientSeed" class="seed-input" value="default-client-seed">
-        </div>
-        <div class="seed-item">
-          <label>Nonce</label>
-          <div class="seed-display" id="activeNonce">0</div>
-        </div>
-        <button class="action-button start-button" id="rotateSeedBtn">
-          <span class="btn-text">🔄 Rotate Seed Pair</span>
-        </button>
-      </div>
-
-      <div class="fairness-section">
-        <h3>Verify Fairness</h3>
-        <div class="seed-item">
-          <label>Server Seed</label>
-          <input type="text" id="verifyServerSeed" class="seed-input" placeholder="Enter server seed">
-        </div>
-        <div class="seed-item">
-          <label>Client Seed</label>
-          <input type="text" id="verifyClientSeed" class="seed-input" placeholder="Enter client seed">
-        </div>
-        <div class="seed-item">
-          <label>Nonce</label>
-          <input type="number" id="verifyNonce" class="seed-input" placeholder="Enter nonce">
-        </div>
-        <div class="seed-item">
-          <label>Mines Count</label>
-          <input type="number" id="verifyMines" class="seed-input" placeholder="Enter mines count" min="1" max="24">
-        </div>
-        <button class="action-button start-button" id="verifyBtn">
-          <span class="btn-text">✓ Verify</span>
-        </button>
-        <div id="verifyResult"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="toast-container" id="toastContainer"></div>
-
-  <audio id="clickSound" src="sounds/click.mp3" preload="auto"></audio>
-  <audio id="bombSound" src="sounds/bomb.mp3" preload="auto"></audio>
+  <div id="toastContainer"></div>
 
   <script src="script.js"></script>
 </body>
