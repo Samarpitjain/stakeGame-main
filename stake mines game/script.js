@@ -196,7 +196,8 @@ async function revealTile(index) {
         won: false,
         profit: STATE.profit,
         bet: STATE.bet,
-        mines: STATE.mines
+        mines: STATE.mines,
+        minePositions: result.game.minePositions
       });
       
       setTimeout(() => {
@@ -239,7 +240,8 @@ async function cashout() {
       won: true,
       profit: STATE.profit,
       bet: STATE.bet,
-      mines: STATE.mines
+      mines: STATE.mines,
+      minePositions: result.game.minePositions
     });
 
     result.game.minePositions.forEach(pos => {
@@ -286,21 +288,139 @@ function updateUI() {
   document.getElementById('minesSlider').disabled = STATE.active;
 }
 
+const allGames = [];
+
 function addToHistory(won, profit) {
-  const list = document.getElementById('historyList');
-  const item = document.createElement('div');
-  item.className = 'history-item';
-  item.innerHTML = `
-    <span>${won ? '💎' : '💣'} ${STATE.mines} mines</span>
-    <span class="history-result ${won ? 'win' : 'loss'}">
-      ${profit >= 0 ? '+' : ''}${formatCurrency(profit)}
-    </span>
-  `;
-  list.insertBefore(item, list.firstChild);
+  const gameData = {
+    id: STATE.gameId,
+    won: won,
+    profit: profit,
+    bet: STATE.bet,
+    mines: STATE.mines,
+    revealed: [...STATE.revealed],
+    minePositions: STATE.completedGames[0]?.minePositions || [],
+    nonce: STATE.nonce - 1,
+    clientSeed: STATE.clientSeed,
+    serverSeedHash: STATE.serverSeedHash,
+    timestamp: new Date().toISOString(),
+    mode: STATE.autoMode ? 'Auto' : 'Manual'
+  };
   
-  if (list.children.length > 10) {
-    list.removeChild(list.lastChild);
+  allGames.unshift(gameData);
+  renderRecentGames();
+}
+
+function renderRecentGames(showAll = false) {
+  const list = document.getElementById('historyList');
+  list.innerHTML = '';
+  
+  const gamesToShow = showAll ? allGames : allGames.slice(0, 5);
+  
+  gamesToShow.forEach(gameData => {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.innerHTML = `
+      <div class="history-header">
+        <span class="history-id">#${gameData.id.substring(0, 8)}</span>
+        <span class="history-mode">${gameData.mode}</span>
+      </div>
+      <div class="history-details">
+        <div class="history-info">
+          <span>₹${gameData.bet}</span>
+          <span>•</span>
+          <span>${gameData.mines}💣</span>
+          <span>•</span>
+          <span>N:${gameData.nonce}</span>
+        </div>
+        <span class="history-result ${gameData.won ? 'win' : 'loss'}">
+          ${gameData.profit >= 0 ? '+' : ''}${formatCurrency(gameData.profit)}
+        </span>
+      </div>
+    `;
+    item.onclick = () => showRoundDetails(gameData);
+    list.appendChild(item);
+  });
+  
+  const btn = document.getElementById('viewAllGamesBtn');
+  if (btn) {
+    btn.textContent = showAll ? 'Show Less' : `View All Games (${allGames.length})`;
+    btn.style.display = allGames.length > 5 ? 'block' : 'none';
   }
+}
+
+function showRoundDetails(gameData) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  
+  const grid = Array(25).fill(null).map((_, idx) => {
+    const isMine = gameData.minePositions?.includes(idx);
+    const isRevealed = gameData.revealed.includes(idx);
+    const icon = isMine ? '💣' : '💎';
+    const tileClass = `round-tile ${isMine ? 'mine' : 'safe'} ${isRevealed ? 'revealed' : ''}`;
+    return `<div class="${tileClass}">${icon}</div>`;
+  }).join('');
+  
+  overlay.innerHTML = `
+    <div class="round-modal">
+      <div class="round-modal-header">
+        <h2 class="round-modal-title">Round Details</h2>
+        <button class="close-btn" onclick="this.closest('.modal-overlay').remove()">×</button>
+      </div>
+      
+      <div class="round-grid">${grid}</div>
+      
+      <div class="round-info-grid">
+        <div class="round-info-item">
+          <div class="round-info-label">Bet Amount</div>
+          <div class="round-info-value">₹${gameData.bet}</div>
+        </div>
+        <div class="round-info-item">
+          <div class="round-info-label">Profit</div>
+          <div class="round-info-value" style="color: ${gameData.won ? '#00e701' : '#ef4444'}">
+            ${gameData.profit >= 0 ? '+' : ''}₹${gameData.profit.toFixed(2)}
+          </div>
+        </div>
+        <div class="round-info-item">
+          <div class="round-info-label">Mines</div>
+          <div class="round-info-value">${gameData.mines}</div>
+        </div>
+        <div class="round-info-item">
+          <div class="round-info-label">Revealed</div>
+          <div class="round-info-value">${gameData.revealed.length} / ${25 - gameData.mines}</div>
+        </div>
+        <div class="round-info-item">
+          <div class="round-info-label">Mode</div>
+          <div class="round-info-value">${gameData.mode}</div>
+        </div>
+        <div class="round-info-item">
+          <div class="round-info-label">Nonce</div>
+          <div class="round-info-value">${gameData.nonce}</div>
+        </div>
+      </div>
+      
+      <div class="round-seeds">
+        <div class="round-seed-item">
+          <div class="round-seed-label">Game ID</div>
+          <div class="round-seed-value">${gameData.id}</div>
+        </div>
+        <div class="round-seed-item">
+          <div class="round-seed-label">Client Seed</div>
+          <div class="round-seed-value">${gameData.clientSeed}</div>
+        </div>
+        <div class="round-seed-item">
+          <div class="round-seed-label">Server Seed Hash</div>
+          <div class="round-seed-value">${gameData.serverSeedHash}</div>
+        </div>
+      </div>
+      
+      <button class="action-btn start-btn" onclick="this.closest('.modal-overlay').remove()">Close</button>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove();
+  };
 }
 
 // ============================================
@@ -979,6 +1099,12 @@ document.addEventListener('keydown', (e) => {
     cashout();
   }
 });
+
+let showingAllGames = false;
+document.getElementById('viewAllGamesBtn').onclick = () => {
+  showingAllGames = !showingAllGames;
+  renderRecentGames(showingAllGames);
+};
 
 // ============================================
 // INITIALIZE
