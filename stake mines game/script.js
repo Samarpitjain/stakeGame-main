@@ -124,8 +124,15 @@ function createBoard() {
     const tile = document.createElement('button');
     tile.className = 'tile';
     tile.dataset.index = i;
-    tile.onclick = () => revealTile(i);
+    tile.onclick = STATE.autoMode ? () => toggleAutoTileSelection(i) : () => revealTile(i);
+    if (STATE.autoMode && STATE.autoConfig.selectedTiles.includes(i)) {
+      tile.classList.add('auto-selected');
+    }
     board.appendChild(tile);
+  }
+  
+  if (STATE.autoMode) {
+    updateSelectedTilesCount();
   }
 }
 
@@ -262,9 +269,10 @@ function updateUI() {
   const safeCount = 25 - STATE.mines;
   document.getElementById('revealed').textContent = `${STATE.revealed.length} / ${safeCount}`;
   
-  document.getElementById('minesCount').textContent = STATE.mines;
-  document.getElementById('minesDisplay').textContent = STATE.mines;
   document.getElementById('gemsCount').textContent = 25 - STATE.mines;
+  if (document.getElementById('autoGemsCount')) {
+    document.getElementById('autoGemsCount').textContent = 25 - STATE.mines;
+  }
   
   document.getElementById('startBtn').classList.toggle('hidden', STATE.active);
   document.getElementById('cashoutBtn').classList.toggle('hidden', !STATE.active);
@@ -579,12 +587,7 @@ async function addFunds() {
 // ============================================
 // AUTO BET MODE
 // ============================================
-function toggleAutoMode() {
-  STATE.autoMode = !STATE.autoMode;
-  document.getElementById('manualMode').classList.toggle('hidden', STATE.autoMode);
-  document.getElementById('autoMode').classList.toggle('hidden', !STATE.autoMode);
-  document.getElementById('modeToggle').textContent = STATE.autoMode ? '🎮 Manual' : '🤖 Auto';
-}
+
 
 function selectAutoTile(index) {
   if (STATE.autoRunning) return;
@@ -595,32 +598,20 @@ function selectAutoTile(index) {
   } else {
     tiles.push(index);
   }
-  updateAutoBoard();
 }
 
 function updateAutoBoard() {
-  const board = document.getElementById('autoBoardPreview');
-  board.innerHTML = '';
-  for (let i = 0; i < 25; i++) {
-    const tile = document.createElement('button');
-    tile.className = 'auto-tile';
-    if (STATE.autoConfig.selectedTiles.includes(i)) {
-      tile.classList.add('selected');
-      tile.textContent = '💎';
-    }
-    tile.onclick = () => selectAutoTile(i);
-    board.appendChild(tile);
-  }
+  // Auto board preview removed from UI
 }
 
 async function startAutoBet() {
-  const bet = parseFloat(document.getElementById('autoBetAmount').value);
-  const mines = parseInt(document.getElementById('autoMinesSlider').value);
-  const rounds = parseInt(document.getElementById('autoRounds').value);
-  const tiles = STATE.autoConfig.selectedTiles;
+  const bet = parseFloat(document.getElementById('autoBetAmount').value) || 0;
+  const mines = parseInt(document.getElementById('autoMinesSlider')?.value || 3);
+  const rounds = parseInt(document.getElementById('autoRounds').value) || 10;
+  const selectedTiles = STATE.autoConfig.selectedTiles;
   
-  if (tiles.length === 0) {
-    toast('Select tiles to reveal!', 'error');
+  if (selectedTiles.length === 0) {
+    toast('Please select tiles on the grid first!', 'error');
     return;
   }
   if (bet > STATE.balance) {
@@ -631,13 +622,7 @@ async function startAutoBet() {
   STATE.autoConfig.baseBet = bet;
   STATE.autoConfig.mines = mines;
   STATE.autoConfig.rounds = rounds;
-  STATE.autoConfig.delay = parseInt(document.getElementById('autoDelay').value);
-  STATE.autoConfig.onWin = document.getElementById('onWin').value;
-  STATE.autoConfig.onWinPercent = parseFloat(document.getElementById('onWinPercent').value) || 0;
-  STATE.autoConfig.onLose = document.getElementById('onLose').value;
-  STATE.autoConfig.onLosePercent = parseFloat(document.getElementById('onLosePercent').value) || 0;
-  STATE.autoConfig.stopOnProfit = parseFloat(document.getElementById('stopProfit').value) || null;
-  STATE.autoConfig.stopOnLoss = parseFloat(document.getElementById('stopLoss').value) || null;
+  STATE.autoConfig.delay = parseInt(document.getElementById('autoDelay')?.value || 500);
   
   STATE.autoRunning = true;
   STATE.autoStats = { currentRound: 0, totalProfit: 0, wins: 0, losses: 0 };
@@ -647,6 +632,8 @@ async function startAutoBet() {
   document.getElementById('stopAutoBtn').classList.remove('hidden');
   document.querySelectorAll('#autoMode input, #autoMode select').forEach(el => el.disabled = true);
   
+  document.querySelectorAll('.tile').forEach(tile => tile.style.pointerEvents = 'none');
+  
   runAutoRound();
 }
 
@@ -655,6 +642,9 @@ function stopAutoBet() {
   document.getElementById('startAutoBtn').classList.remove('hidden');
   document.getElementById('stopAutoBtn').classList.add('hidden');
   document.querySelectorAll('#autoMode input, #autoMode select').forEach(el => el.disabled = false);
+  
+  document.querySelectorAll('.tile').forEach(tile => tile.style.pointerEvents = 'auto');
+  
   toast(`Auto bet stopped. Total: ${formatCurrency(STATE.autoStats.totalProfit)}`, 'info');
 }
 
@@ -701,6 +691,11 @@ async function runAutoRound() {
     
     createBoard();
     updateUI();
+    
+    // Remove auto-selected visual state during game
+    document.querySelectorAll('.tile').forEach(tile => {
+      tile.classList.remove('auto-selected');
+    });
     
     await new Promise(resolve => setTimeout(resolve, STATE.autoConfig.delay));
     
@@ -786,6 +781,16 @@ async function runAutoRound() {
     updateAutoStats();
     
     await new Promise(resolve => setTimeout(resolve, STATE.autoConfig.delay));
+    
+    // Restore selected tiles visual for next round
+    if (STATE.autoRunning) {
+      document.querySelectorAll('.tile').forEach((tile, idx) => {
+        if (STATE.autoConfig.selectedTiles.includes(idx)) {
+          tile.classList.add('auto-selected');
+        }
+      });
+    }
+    
     runAutoRound();
   } catch (error) {
     toast('Error: ' + error.message, 'error');
@@ -794,11 +799,85 @@ async function runAutoRound() {
 }
 
 function updateAutoStats() {
-  document.getElementById('autoCurrentRound').textContent = `${STATE.autoStats.currentRound} / ${STATE.autoConfig.rounds}`;
-  document.getElementById('autoCurrentBet').textContent = formatCurrency(STATE.bet);
-  document.getElementById('autoTotalProfit').textContent = formatCurrency(STATE.autoStats.totalProfit);
-  document.getElementById('autoWins').textContent = STATE.autoStats.wins;
-  document.getElementById('autoLosses').textContent = STATE.autoStats.losses;
+  // Stats display removed from UI - stats tracked internally only
+  console.log(`Round ${STATE.autoStats.currentRound}/${STATE.autoConfig.rounds} | Profit: ${formatCurrency(STATE.autoStats.totalProfit)} | W/L: ${STATE.autoStats.wins}/${STATE.autoStats.losses}`);
+}
+
+// ============================================
+// MODE SWITCHING FUNCTIONS
+// ============================================
+function switchMode(mode) {
+  STATE.autoMode = mode === 'auto';
+  document.getElementById('manualMode').classList.toggle('hidden', STATE.autoMode);
+  document.getElementById('autoMode').classList.toggle('hidden', !STATE.autoMode);
+  document.getElementById('manualTab').classList.toggle('active', !STATE.autoMode);
+  document.getElementById('autoTab').classList.toggle('active', STATE.autoMode);
+  
+  if (STATE.autoMode) {
+    resetGridVisuals();
+    enableAutoTileSelection();
+  } else {
+    disableAutoTileSelection();
+  }
+}
+
+function resetGridVisuals() {
+  const tiles = document.querySelectorAll('.tile');
+  tiles.forEach(tile => {
+    if (tile.classList.contains('revealed')) {
+      tile.classList.add('resetting');
+      setTimeout(() => {
+        tile.classList.remove('revealed', 'gem', 'mine', 'resetting');
+        tile.textContent = '';
+      }, 200);
+    }
+  });
+}
+
+function enableAutoTileSelection() {
+  const tiles = document.querySelectorAll('.tile');
+  tiles.forEach((tile, index) => {
+    tile.onclick = () => toggleAutoTileSelection(index);
+    if (STATE.autoConfig.selectedTiles.includes(index)) {
+      tile.classList.add('auto-selected');
+    }
+  });
+  updateSelectedTilesCount();
+}
+
+function disableAutoTileSelection() {
+  const tiles = document.querySelectorAll('.tile');
+  tiles.forEach((tile, index) => {
+    tile.classList.remove('auto-selected');
+    tile.onclick = () => revealTile(index);
+  });
+}
+
+function toggleAutoTileSelection(index) {
+  if (STATE.autoRunning || STATE.active) return;
+  
+  const tile = document.querySelector(`[data-index="${index}"]`);
+  const selectedTiles = STATE.autoConfig.selectedTiles;
+  const idx = selectedTiles.indexOf(index);
+  
+  if (idx > -1) {
+    selectedTiles.splice(idx, 1);
+    tile.classList.remove('auto-selected');
+  } else {
+    selectedTiles.push(index);
+    tile.classList.add('auto-selected');
+  }
+  
+  updateSelectedTilesCount();
+}
+
+function updateSelectedTilesCount() {
+  const count = STATE.autoConfig.selectedTiles.length;
+  const countEl = document.getElementById('selectedTilesCount');
+  if (countEl) {
+    countEl.textContent = `${count} selected`;
+    countEl.style.color = count > 0 ? '#00e701' : '#7a8a9e';
+  }
 }
 
 // ============================================
@@ -808,49 +887,75 @@ document.getElementById('startBtn').onclick = startGame;
 document.getElementById('cashoutBtn').onclick = cashout;
 document.getElementById('fairnessBtn').onclick = showFairnessModal;
 document.getElementById('addFundsBtn').onclick = addFunds;
-document.getElementById('modeToggle').onclick = toggleAutoMode;
-document.getElementById('startAutoBtn').onclick = startAutoBet;
-document.getElementById('stopAutoBtn').onclick = stopAutoBet;
+document.getElementById('manualTab').onclick = () => switchMode('manual');
+document.getElementById('autoTab').onclick = () => switchMode('auto');
+if (document.getElementById('startAutoBtn')) {
+  document.getElementById('startAutoBtn').onclick = startAutoBet;
+}
+if (document.getElementById('stopAutoBtn')) {
+  document.getElementById('stopAutoBtn').onclick = stopAutoBet;
+}
 
-document.getElementById('minesSlider').oninput = (e) => {
+document.getElementById('minesSlider').onchange = (e) => {
   STATE.mines = parseInt(e.target.value);
   updateUI();
 };
 
-document.getElementById('autoMinesSlider').oninput = (e) => {
-  const mines = parseInt(e.target.value);
-  STATE.autoConfig.mines = mines;
-  document.getElementById('autoMinesCount').textContent = mines;
-  document.getElementById('autoMinesDisplay').textContent = mines;
-  document.getElementById('autoGemsCount').textContent = 25 - mines;
-};
+setTimeout(() => {
+  if (document.getElementById('autoMinesSlider')) {
+    document.getElementById('autoMinesSlider').onchange = (e) => {
+      const mines = parseInt(e.target.value);
+      STATE.autoConfig.mines = mines;
+      if (document.getElementById('autoGemsCount')) {
+        document.getElementById('autoGemsCount').textContent = 25 - mines;
+      }
+    };
+  }
+}, 100);
 
-document.getElementById('onWin').onchange = (e) => {
-  document.getElementById('onWinPercentGroup').classList.toggle('hidden', e.target.value !== 'increase');
-};
 
-document.getElementById('onLose').onchange = (e) => {
-  document.getElementById('onLosePercentGroup').classList.toggle('hidden', e.target.value !== 'increase');
-};
 
-document.getElementById('toggleAdvanced').onclick = () => {
-  const advanced = document.getElementById('advancedSettings');
-  advanced.classList.toggle('hidden');
-  document.getElementById('toggleAdvanced').textContent = advanced.classList.contains('hidden') ? '▼ Advanced' : '▲ Advanced';
-};
+// Handle On Win button group
+setTimeout(() => {
+  document.querySelectorAll('#advancedSettings .button-group').forEach((group, index) => {
+    group.querySelectorAll('.group-btn').forEach(btn => {
+      btn.onclick = () => {
+        group.querySelectorAll('.group-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        if (index === 0) {
+          // On Win
+          const winGroup = document.getElementById('onWinPercentGroup');
+          if (winGroup) winGroup.classList.toggle('hidden', btn.dataset.value !== 'increase');
+        } else if (index === 1) {
+          // On Loss
+          const loseGroup = document.getElementById('onLosePercentGroup');
+          if (loseGroup) loseGroup.classList.toggle('hidden', btn.dataset.value !== 'increase');
+        }
+      };
+    });
+  });
+}, 100);
 
-document.querySelectorAll('.bet-btn').forEach(btn => {
+if (document.getElementById('advancedToggle')) {
+  document.getElementById('advancedToggle').onchange = (e) => {
+    document.getElementById('advancedSettings').classList.toggle('hidden', !e.target.checked);
+  };
+}
+
+document.querySelectorAll('.bet-action-btn').forEach(btn => {
   btn.onclick = () => {
-    const input = document.getElementById('betAmount');
-    let value = parseFloat(input.value) || 10;
+    const isAuto = !document.getElementById('autoMode').classList.contains('hidden');
+    const input = document.getElementById(isAuto ? 'autoBetAmount' : 'betAmount');
+    let value = parseFloat(input.value) || 0;
     
     if (btn.dataset.action === 'half') {
-      value = Math.max(1, value / 2);
+      value = Math.max(0, value / 2);
     } else if (btn.dataset.action === 'double') {
       value = value * 2;
     }
     
-    input.value = value.toFixed(2);
+    input.value = value.toFixed(8);
   };
 });
 
@@ -871,3 +976,4 @@ createBoard();
 updateAutoBoard();
 updateUI();
 initUser();
+switchMode('manual');
