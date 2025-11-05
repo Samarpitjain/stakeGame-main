@@ -861,6 +861,15 @@ async function runAutoRound() {
           });
         }, 200);
         
+        STATE.completedGames.unshift({
+          id: STATE.gameId,
+          won: false,
+          profit: STATE.profit,
+          bet: STATE.bet,
+          mines: STATE.mines,
+          minePositions: revealResult.game.minePositions
+        });
+        
         addToHistory(false, STATE.profit);
         STATE.autoStats.losses++;
         STATE.autoStats.totalProfit += STATE.profit;
@@ -897,6 +906,15 @@ async function runAutoRound() {
         }
       });
       
+      STATE.completedGames.unshift({
+        id: STATE.gameId,
+        won: true,
+        profit: STATE.profit,
+        bet: STATE.bet,
+        mines: STATE.mines,
+        minePositions: cashoutResult.game.minePositions
+      });
+      
       addToHistory(true, STATE.profit);
       STATE.autoStats.wins++;
       STATE.autoStats.totalProfit += STATE.profit;
@@ -913,13 +931,25 @@ async function runAutoRound() {
     
     await new Promise(resolve => setTimeout(resolve, STATE.autoConfig.delay));
     
-    // Restore selected tiles visual for next round
+    // Reset board and restore selected tiles for next round
     if (STATE.autoRunning) {
-      document.querySelectorAll('.tile').forEach((tile, idx) => {
-        if (STATE.autoConfig.selectedTiles.includes(idx)) {
+      const tiles = document.querySelectorAll('.tile');
+      tiles.forEach((tile, idx) => {
+        if (tile.classList.contains('revealed')) {
+          tile.classList.add('resetting');
+          setTimeout(() => {
+            tile.classList.remove('revealed', 'gem', 'mine', 'resetting');
+            tile.textContent = '';
+            if (STATE.autoConfig.selectedTiles.includes(idx)) {
+              tile.classList.add('auto-selected');
+            }
+          }, 200);
+        } else if (STATE.autoConfig.selectedTiles.includes(idx)) {
           tile.classList.add('auto-selected');
         }
       });
+      
+      await new Promise(resolve => setTimeout(resolve, 400));
     }
     
     runAutoRound();
