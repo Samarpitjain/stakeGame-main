@@ -1,7 +1,8 @@
+// utils/seedUtils.js
 const crypto = require('crypto');
 
 /**
- * Generate a random server seed
+ * Generate a cryptographically secure server seed
  */
 function generateServerSeed() {
   return crypto.randomBytes(32).toString('hex');
@@ -10,106 +11,105 @@ function generateServerSeed() {
 /**
  * Hash a string using SHA-256
  */
-function sha256(str) {
-  return crypto.createHash('sha256').update(str).digest('hex');
+function sha256(data) {
+  return crypto.createHash('sha256').update(data).digest('hex');
 }
 
 /**
- * Mulberry32 PRNG (deterministic)
- * Simple, fast, and deterministic pseudo-random number generator
+ * Generate combined seed hash for verification
  */
-function createPRNG(seed) {
-  let t = seed >>> 0;
-  
-  return function() {
-    t += 0x6D2B79F5;
-    let z = t;
-    z = Math.imul(z ^ (z >>> 15), z | 1);
-    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
-    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
-  };
+function generateSeedHash(serverSeed, clientSeed, nonce) {
+  const combined = `${serverSeed}:${clientSeed}:${nonce}`;
+  return sha256(combined);
 }
 
 /**
  * Generate mine positions using provably fair algorithm
- * FIXED: Now properly deterministic - same inputs always produce same outputs
+ * Uses HMAC-SHA256 for cryptographic randomness
  */
 function generateMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount) {
-  // CRITICAL: Combine seeds in the standard provably fair format
-  // Format: serverSeed:clientSeed:nonce
-  const seedStr = `${serverSeed}:${clientSeed}:${nonce}`;
+  const positions = [];
+  const usedPositions = new Set();
   
-  // Hash the combined seed string
-  const hex = sha256(seedStr);
+  let currentNonce = 0;
   
-  // Convert hash to a single seed integer (using first 8 hex chars = 32 bits)
-  const seed = parseInt(hex.slice(0, 8), 16);
-  
-  // Initialize PRNG with the seed
-  const prng = createPRNG(seed);
-
-  // Fisher-Yates shuffle using PRNG
-  const arr = Array.from({ length: gridSize }, (_, i) => i);
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(prng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+  while (positions.length < minesCount) {
+    // Create unique seed for each mine position
+    const seed = `${serverSeed}:${clientSeed}:${nonce}:${currentNonce}`;
+    
+    // Generate HMAC-SHA256 hash
+    const hash = crypto
+      .createHmac('sha256', serverSeed)
+      .update(`${clientSeed}:${nonce}:${currentNonce}`)
+      .digest('hex');
+    
+    // Convert first 8 characters to number
+    const position = parseInt(hash.substring(0, 8), 16) % gridSize;
+    
+    // Add if not duplicate
+    if (!usedPositions.has(position)) {
+      positions.push(position);
+      usedPositions.add(position);
+    }
+    
+    currentNonce++;
+    
+    // Safety check to prevent infinite loop
+    if (currentNonce > 1000) {
+      throw new Error('Failed to generate mine positions');
+    }
   }
-
-  // Return first N positions as mine positions
-  return arr.slice(0, minesCount).sort((a, b) => a - b);
+  
+  return positions;
 }
 
 /**
- * Verify if mine positions match the seeds
- * FIXED: Uses the same seed combination format
+ * Verify mine positions match the original generation
  */
-function verifyMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount, minePositions) {
-  const generated = generateMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount);
-  
-  // Check if arrays match
-  if (generated.length !== minePositions.length) return false;
-  
-  const sortedGenerated = [...generated].sort((a, b) => a - b);
-  const sortedProvided = [...minePositions].sort((a, b) => a - b);
-  
-  return sortedGenerated.every((val, idx) => val === sortedProvided[idx]);
+function verifyMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount, originalPositions) {
+  try {
+    const regenerated = generateMinePositions(serverSeed, clientSeed, nonce, gridSize, minesCount);
+    
+    const sortedOriginal = [...originalPositions].sort((a, b) => a - b);
+    const sortedRegenerated = [...regenerated].sort((a, b) => a - b);
+    
+    return JSON.stringify(sortedOriginal) === JSON.stringify(sortedRegenerated);
+  } catch (error) {
+    console.error('Verification error:', error);
+    return false;
+  }
 }
 
 /**
- * Calculate multiplier for current game state
- * Risk-based multiplier calculation
+ * Calculate multiplier based on revealed tiles
+ * Formula: multiplier = (gridSize / (gridSize - minesCount)) ^ revealedCount
  */
-function calculateMultiplier(currentMultiplier, revealedCount, gridSize, minesCount) {
-  const total = gridSize;
-  const remainingCells = total - revealedCount;
-  const remainingSafe = (total - minesCount) - revealedCount;
+function calculateMultiplier(baseMultiplier, revealedCount, gridSize, minesCount) {
+  if (revealedCount === 0) return 1.0;
   
-  if (remainingSafe <= 0) return currentMultiplier;
+  const safeTiles = gridSize - minesCount;
+  const multiplierPerTile = gridSize / safeTiles;
   
-  // Risk bonus calculation (matches standard casino formula)
-  const riskStep = 0.5;
-  const baseMines = 1;
-  const riskBonus = Math.max(0, 1 + riskStep * (minesCount - baseMines));
+  // Calculate new multiplier
+  const newMultiplier = Math.pow(multiplierPerTile, revealedCount);
   
-  const step = (remainingCells / remainingSafe) * riskBonus;
-  return currentMultiplier * step;
+  // Round to 2 decimal places
+  return Math.round(newMultiplier * 100) / 100;
 }
 
 /**
- * Generate seed combination hash for verification
- * This is what players can verify independently
+ * Generate a random client seed
  */
-function generateSeedHash(serverSeed, clientSeed, nonce) {
-  const seedStr = `${serverSeed}:${clientSeed}:${nonce}`;
-  return sha256(seedStr);
+function generateClientSeed() {
+  return crypto.randomBytes(16).toString('hex');
 }
 
 module.exports = {
   generateServerSeed,
   sha256,
-  createPRNG,
+  generateSeedHash,
   generateMinePositions,
   verifyMinePositions,
   calculateMultiplier,
-  generateSeedHash
+  generateClientSeed
 };

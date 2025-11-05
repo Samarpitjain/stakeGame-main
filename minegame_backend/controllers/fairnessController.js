@@ -1,15 +1,16 @@
 // controllers/fairnessController.js
 const { sha256, generateMinePositions, generateSeedHash } = require('../utils/seedUtils');
+const Game = require('../models/Game');
+const User = require('../models/User');
 
 /**
- * Verify game fairness by regenerating mine positions
+ * Verify fairness with custom seeds (Independent verification)
  * POST /api/fairness/verify
  */
 exports.verifyFairness = async (req, res) => {
   try {
     const { serverSeed, clientSeed, nonce, minesCount, gridSize = 25 } = req.body;
 
-    // Validation
     if (!serverSeed || !clientSeed) {
       return res.status(400).json({ 
         error: 'Missing required fields: serverSeed, clientSeed' 
@@ -28,10 +29,7 @@ exports.verifyFairness = async (req, res) => {
       });
     }
 
-    // Generate server seed hash
     const serverSeedHash = sha256(serverSeed);
-
-    // Regenerate mine positions using provably fair algorithm
     const minePositions = generateMinePositions(
       serverSeed,
       clientSeed,
@@ -40,17 +38,15 @@ exports.verifyFairness = async (req, res) => {
       minesCount
     );
 
-    // Generate the combined seed hash for verification
     const combinedHash = generateSeedHash(serverSeed, clientSeed, nonce);
 
-    // Create fairness matrix (5x5 grid visualization)
     const matrix = Array(gridSize).fill(null).map((_, idx) => ({
       position: idx,
       isMine: minePositions.includes(idx),
-      revealed: false
+      row: Math.floor(idx / 5),
+      col: idx % 5
     }));
 
-    // Calculate safe tiles
     const safeTiles = [];
     for (let i = 0; i < gridSize; i++) {
       if (!minePositions.includes(i)) {
@@ -72,10 +68,9 @@ exports.verifyFairness = async (req, res) => {
         minePositions: minePositions.sort((a, b) => a - b),
         safeTiles: safeTiles.sort((a, b) => a - b),
         matrix,
-        seedCombination: `${serverSeed}:${clientSeed}:${nonce}`,
         combinedHash
       },
-      message: 'Fairness verification complete. Mine positions regenerated successfully.'
+      message: '✅ Independent verification complete'
     });
   } catch (error) {
     console.error('Fairness verification error:', error);
@@ -87,38 +82,12 @@ exports.verifyFairness = async (req, res) => {
 };
 
 /**
- * Generate a new server seed for next game
- * GET /api/fairness/new-seed
- */
-exports.generateNewServerSeed = async (req, res) => {
-  try {
-    const { generateServerSeed } = require('../utils/seedUtils');
-    
-    const serverSeed = generateServerSeed();
-    const serverSeedHash = sha256(serverSeed);
-
-    res.json({
-      success: true,
-      serverSeedHash,
-      message: 'New server seed generated. The actual seed will be revealed after the game.'
-    });
-  } catch (error) {
-    console.error('Generate seed error:', error);
-    res.status(500).json({ 
-      error: 'Failed to generate server seed', 
-      details: error.message 
-    });
-  }
-};
-
-/**
- * Verify a specific game by game ID
+ * Verify a specific game by ID (After seed rotation)
  * GET /api/fairness/verify-game/:gameId
  */
 exports.verifyGameById = async (req, res) => {
   try {
     const { gameId } = req.params;
-    const Game = require('../models/Game');
 
     const game = await Game.findById(gameId);
     if (!game) {
@@ -127,37 +96,61 @@ exports.verifyGameById = async (req, res) => {
 
     if (game.status === 'active') {
       return res.status(400).json({ 
-        error: 'Cannot verify active game. Game must be completed first.' 
+        error: 'Cannot verify active game. Complete the game first.' 
       });
     }
 
-    // Verify server seed hash
-    const computedHash = sha256(game.serverSeed);
+    // Get user to check if seed was revealed
+    const user = await User.findOne({ userId: game.userId });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if seed has been revealed via rotation
+    const isRevealed = user.previousServerSeed && 
+                       user.previousNonce >= game.nonce;
+
+    if (!isRevealed) {
+      return res.json({
+        success: false,
+        verified: false,
+        message: '🔒 Server seed not yet revealed. Please rotate your seed pair to verify this game.',
+        game: {
+          gameId: game._id,
+          status: game.status,
+          serverSeedHash: game.serverSeedHash,
+          clientSeed: game.clientSeed,
+          nonce: game.nonce
+        },
+        action: 'Rotate seed pair at /api/games/seeds/:userId/rotate'
+      });
+    }
+
+    // Verify with revealed seed
+    const computedHash = sha256(user.previousServerSeed);
     const hashMatches = computedHash === game.serverSeedHash;
 
-    // Regenerate mine positions using the SAME algorithm
     const regeneratedPositions = generateMinePositions(
-      game.serverSeed,
+      user.previousServerSeed,
       game.clientSeed,
       game.nonce,
       game.gridSize,
       game.minesCount
     );
 
-    // Check if positions match
     const sortedOriginal = [...game.minePositions].sort((a, b) => a - b);
     const sortedRegenerated = [...regeneratedPositions].sort((a, b) => a - b);
     const positionsMatch = JSON.stringify(sortedOriginal) === JSON.stringify(sortedRegenerated);
 
-    // Create matrix
     const matrix = Array(game.gridSize).fill(null).map((_, idx) => ({
       position: idx,
       isMine: game.minePositions.includes(idx),
-      wasRevealed: game.revealedTiles.includes(idx)
+      wasRevealed: game.revealedTiles.includes(idx),
+      row: Math.floor(idx / 5),
+      col: idx % 5
     }));
 
-    // Generate combined hash
-    const combinedHash = generateSeedHash(game.serverSeed, game.clientSeed, game.nonce);
+    const combinedHash = generateSeedHash(user.previousServerSeed, game.clientSeed, game.nonce);
 
     res.json({
       success: true,
@@ -170,7 +163,7 @@ exports.verifyGameById = async (req, res) => {
         profit: game.profit
       },
       verification: {
-        serverSeed: game.serverSeed,
+        serverSeed: user.previousServerSeed, // 🔓 Revealed!
         serverSeedHash: game.serverSeedHash,
         computedHash,
         hashMatches,
@@ -178,7 +171,6 @@ exports.verifyGameById = async (req, res) => {
         nonce: game.nonce,
         minesCount: game.minesCount,
         gridSize: game.gridSize,
-        seedCombination: `${game.serverSeed}:${game.clientSeed}:${game.nonce}`,
         combinedHash
       },
       result: {
@@ -190,7 +182,7 @@ exports.verifyGameById = async (req, res) => {
       },
       message: hashMatches && positionsMatch 
         ? '✅ Game is provably fair! All verifications passed.' 
-        : '❌ Verification failed. Game may not be fair.'
+        : '❌ Verification failed. Possible tampering detected.'
     });
   } catch (error) {
     console.error('Verify game error:', error);
@@ -201,4 +193,86 @@ exports.verifyGameById = async (req, res) => {
   }
 };
 
-module.exports = exports;
+/**
+ * Get verification status for multiple games
+ * POST /api/fairness/batch-verify
+ */
+exports.batchVerifyGames = async (req, res) => {
+  try {
+    const { userId, gameIds } = req.body;
+
+    if (!userId || !gameIds || !Array.isArray(gameIds)) {
+      return res.status(400).json({ 
+        error: 'userId and gameIds array required' 
+      });
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const games = await Game.find({ 
+      _id: { $in: gameIds },
+      userId 
+    });
+
+    const verifications = games.map(game => {
+      const isRevealed = user.previousServerSeed && 
+                         user.previousNonce >= game.nonce;
+      
+      if (!isRevealed || game.status === 'active') {
+        return {
+          gameId: game._id,
+          canVerify: false,
+          reason: game.status === 'active' ? 'Game still active' : 'Seed not revealed'
+        };
+      }
+
+      const computedHash = sha256(user.previousServerSeed);
+      const hashMatches = computedHash === game.serverSeedHash;
+      
+      const regeneratedPositions = generateMinePositions(
+        user.previousServerSeed,
+        game.clientSeed,
+        game.nonce,
+        game.gridSize,
+        game.minesCount
+      );
+
+      const positionsMatch = JSON.stringify(
+        [...game.minePositions].sort()
+      ) === JSON.stringify(
+        [...regeneratedPositions].sort()
+      );
+
+      return {
+        gameId: game._id,
+        canVerify: true,
+        verified: hashMatches && positionsMatch,
+        hashMatches,
+        positionsMatch,
+        nonce: game.nonce
+      };
+    });
+
+    res.json({
+      success: true,
+      userId,
+      totalGames: verifications.length,
+      verifications
+    });
+  } catch (error) {
+    console.error('Batch verify error:', error);
+    res.status(500).json({ 
+      error: 'Failed to batch verify games', 
+      details: error.message 
+    });
+  }
+};
+
+module.exports = {
+  verifyFairness: exports.verifyFairness,
+  verifyGameById: exports.verifyGameById,
+  batchVerifyGames: exports.batchVerifyGames
+};

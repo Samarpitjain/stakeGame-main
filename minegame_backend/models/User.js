@@ -1,109 +1,135 @@
+// models/User.js
 const mongoose = require('mongoose');
 const { generateServerSeed, sha256 } = require('../utils/seedUtils');
 
 const userSchema = new mongoose.Schema({
-  serverSeed: {
-    type: String,
-    default: () => generateServerSeed()
+  userId: { 
+    type: String, 
+    required: true, 
+    unique: true 
   },
-  serverSeedHash: {
-    type: String
+  username: { 
+    type: String, 
+    required: true 
   },
-  clientSeed: {
-    type: String,
-    default: 'default-client-seed'
+  balance: { 
+    type: Number, 
+    default: 1000 
   },
-  nonce: {
-    type: Number,
-    default: 0
+  
+  // Current active seed pair (HIDDEN from user until rotation)
+  serverSeed: { 
+    type: String, 
+    required: true 
   },
-  userId: {
-    type: String,
+  serverSeedHash: { 
+    type: String, 
+    required: true 
+  },
+  clientSeed: { 
+    type: String, 
     required: true,
-    unique: true,
-    index: true
+    default: function() {
+      return Math.random().toString(36).substring(2, 15);
+    }
   },
-  username: {
-    type: String,
-    required: true,
-    trim: true
+  nonce: { 
+    type: Number, 
+    default: 0 
   },
-  balance: {
-    type: Number,
-    default: 1000,
-    min: 0
+  
+  // Previous seed pair (revealed after rotation)
+  previousServerSeed: { 
+    type: String 
   },
-  totalWagered: {
-    type: Number,
-    default: 0
+  previousServerSeedHash: { 
+    type: String 
   },
-  totalProfit: {
-    type: Number,
-    default: 0
+  previousClientSeed: { 
+    type: String 
   },
-  gamesPlayed: {
-    type: Number,
-    default: 0
+  previousNonce: { 
+    type: Number 
   },
-  gamesWon: {
-    type: Number,
-    default: 0
+  
+  // Statistics
+  totalWagered: { 
+    type: Number, 
+    default: 0 
   },
-  gamesLost: {
-    type: Number,
-    default: 0
+  totalProfit: { 
+    type: Number, 
+    default: 0 
   },
-  lastActive: {
-    type: Date,
-    default: Date.now
+  gamesPlayed: { 
+    type: Number, 
+    default: 0 
+  },
+  gamesWon: { 
+    type: Number, 
+    default: 0 
+  },
+  gamesLost: { 
+    type: Number, 
+    default: 0 
   }
 }, {
   timestamps: true
 });
 
-// Method to update balance
-userSchema.methods.updateBalance = function(amount) {
-  this.balance += amount;
-  if (this.balance < 0) this.balance = 0;
-  return this.balance;
-};
-
-// Method to add funds (demo)
-userSchema.methods.addFunds = function(amount) {
-  this.balance += amount;
-  return this.balance;
-};
-
-// Method to record game result
-userSchema.methods.recordGameResult = function(betAmount, profit, won) {
-  this.totalWagered += betAmount;
-  this.totalProfit += profit;
-  this.gamesPlayed += 1;
-  this.nonce += 1;
-  if (won) {
-    this.gamesWon += 1;
-  } else {
-    this.gamesLost += 1;
-  }
-  this.lastActive = Date.now();
-};
-
-// Method to rotate seed pair
-userSchema.methods.rotateSeedPair = function(newClientSeed) {
-  this.serverSeed = generateServerSeed();
-  this.serverSeedHash = sha256(this.serverSeed);
-  if (newClientSeed) this.clientSeed = newClientSeed;
-  this.nonce = 0;
-};
-
-// Pre-save hook to ensure serverSeedHash is set
-userSchema.pre('save', function(next) {
-  if (this.isNew || this.isModified('serverSeed')) {
+// Initialize user with first server seed BEFORE validation
+userSchema.pre('validate', function(next) {
+  if (this.isNew && !this.serverSeed) {
+    this.serverSeed = generateServerSeed();
     this.serverSeedHash = sha256(this.serverSeed);
   }
   next();
 });
 
-const User = mongoose.model('User', userSchema);
+// Update balance
+userSchema.methods.updateBalance = function(amount) {
+  this.balance += amount;
+  return this.balance;
+};
 
-module.exports = User;
+// Increment nonce after each game
+userSchema.methods.incrementNonce = function() {
+  this.nonce += 1;
+  return this.nonce;
+};
+
+// Rotate seed pair (like Stake's "Next Server Seed" button)
+userSchema.methods.rotateSeedPair = function(newClientSeed = null) {
+  // Save current seeds as previous (now revealed)
+  this.previousServerSeed = this.serverSeed;
+  this.previousServerSeedHash = this.serverSeedHash;
+  this.previousClientSeed = this.clientSeed;
+  this.previousNonce = this.nonce;
+  
+  // Generate new seed pair
+  this.serverSeed = generateServerSeed();
+  this.serverSeedHash = sha256(this.serverSeed);
+  this.clientSeed = newClientSeed || Math.random().toString(36).substring(2, 15);
+  this.nonce = 0; // Reset nonce for new seed pair
+  
+  return {
+    revealedServerSeed: this.previousServerSeed,
+    newServerSeedHash: this.serverSeedHash,
+    newClientSeed: this.clientSeed,
+    newNonce: this.nonce
+  };
+};
+
+// Record game result
+userSchema.methods.recordGameResult = function(wagered, profit, won) {
+  this.totalWagered += wagered;
+  this.totalProfit += profit;
+  this.gamesPlayed += 1;
+  if (won) {
+    this.gamesWon += 1;
+  } else {
+    this.gamesLost += 1;
+  }
+};
+
+module.exports = mongoose.model('User', userSchema);
