@@ -1,7 +1,7 @@
 // ============================================
 // CONFIGURATION
 // ============================================
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://mine-game-api.onrender.com/api';
 const USER_ID = 'user_' + Math.random().toString(36).substr(2, 9);
 
 // ============================================
