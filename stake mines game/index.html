@@ -22,30 +22,123 @@
 
     <div class="main-content">
       <div class="control-panel">
-        <div class="control-group">
-          <label class="control-label">Bet Amount</label>
-          <div class="input-wrapper">
-            <input type="number" id="betAmount" class="control-input" value="10" min="1" step="0.01">
+        <button class="mode-toggle" id="modeToggle">🤖 Auto</button>
+        
+        <div id="manualMode">
+          <div class="control-group">
+            <label class="control-label">Bet Amount</label>
+            <div class="input-wrapper">
+              <input type="number" id="betAmount" class="control-input" value="10" min="1" step="0.01">
+            </div>
+            <div class="bet-actions">
+              <button class="bet-btn" data-action="half">½ Half</button>
+              <button class="bet-btn" data-action="double">2× Double</button>
+            </div>
           </div>
-          <div class="bet-actions">
-            <button class="bet-btn" data-action="half">½ Half</button>
-            <button class="bet-btn" data-action="double">2× Double</button>
-          </div>
-        </div>
 
-        <div class="control-group">
-          <label class="control-label">Mines: <span id="minesCount">3</span></label>
-          <input type="range" id="minesSlider" class="mines-slider" min="1" max="24" value="3">
-          <div class="mines-info">
-            <span>💎 Gems: <span id="gemsCount">22</span></span>
-            <span>💣 Mines: <span id="minesDisplay">3</span></span>
+          <div class="control-group">
+            <label class="control-label">Mines: <span id="minesCount">3</span></label>
+            <input type="range" id="minesSlider" class="mines-slider" min="1" max="24" value="3">
+            <div class="mines-info">
+              <span>💎 Gems: <span id="gemsCount">22</span></span>
+              <span>💣 Mines: <span id="minesDisplay">3</span></span>
+            </div>
           </div>
-        </div>
 
-        <button class="action-btn start-btn" id="startBtn">Start Game</button>
-        <button class="action-btn cashout-btn hidden" id="cashoutBtn">
-          Cashout <span id="cashoutAmount">₹0.00</span>
-        </button>
+          <button class="action-btn start-btn" id="startBtn">Start Game</button>
+          <button class="action-btn cashout-btn hidden" id="cashoutBtn">
+            Cashout <span id="cashoutAmount">₹0.00</span>
+          </button>
+        </div>
+        
+        <div id="autoMode" class="hidden">
+          <div class="control-group">
+            <label class="control-label">Bet Amount</label>
+            <input type="number" id="autoBetAmount" class="control-input" value="10" min="1" step="0.01">
+          </div>
+          
+          <div class="control-group">
+            <label class="control-label">Mines: <span id="autoMinesCount">3</span></label>
+            <input type="range" id="autoMinesSlider" class="mines-slider" min="1" max="24" value="3">
+            <div class="mines-info">
+              <span>💎 Gems: <span id="autoGemsCount">22</span></span>
+              <span>💣 Mines: <span id="autoMinesDisplay">3</span></span>
+            </div>
+          </div>
+          
+          <div class="control-group">
+            <label class="control-label">Number of Rounds</label>
+            <input type="number" id="autoRounds" class="control-input" value="10" min="1">
+          </div>
+          
+          <div class="control-group">
+            <label class="control-label">Delay (ms)</label>
+            <input type="number" id="autoDelay" class="control-input" value="500" min="100" step="100">
+          </div>
+          
+          <div class="control-group">
+            <label class="control-label">Select Tiles to Reveal</label>
+            <div id="autoBoardPreview" class="auto-board"></div>
+          </div>
+          
+          <button class="advanced-toggle" id="toggleAdvanced">▼ Advanced</button>
+          
+          <div id="advancedSettings" class="hidden">
+            <div class="control-group">
+              <label class="control-label">On Win</label>
+              <select id="onWin" class="control-input">
+                <option value="reset">Reset to Base</option>
+                <option value="increase">Increase by %</option>
+              </select>
+              <div id="onWinPercentGroup" class="hidden" style="margin-top: 8px;">
+                <input type="number" id="onWinPercent" class="control-input" placeholder="Increase %" value="0" min="0">
+              </div>
+            </div>
+            
+            <div class="control-group">
+              <label class="control-label">On Lose</label>
+              <select id="onLose" class="control-input">
+                <option value="reset">Reset to Base</option>
+                <option value="increase">Increase by %</option>
+              </select>
+              <div id="onLosePercentGroup" class="hidden" style="margin-top: 8px;">
+                <input type="number" id="onLosePercent" class="control-input" placeholder="Increase %" value="0" min="0">
+              </div>
+            </div>
+            
+            <div class="control-group">
+              <label class="control-label">Stop on Profit</label>
+              <input type="number" id="stopProfit" class="control-input" placeholder="Leave empty to disable" min="0" step="0.01">
+            </div>
+            
+            <div class="control-group">
+              <label class="control-label">Stop on Loss</label>
+              <input type="number" id="stopLoss" class="control-input" placeholder="Leave empty to disable" min="0" step="0.01">
+            </div>
+          </div>
+          
+          <div class="auto-stats">
+            <div class="auto-stat-item">
+              <span>Round:</span>
+              <span id="autoCurrentRound">0 / 0</span>
+            </div>
+            <div class="auto-stat-item">
+              <span>Bet:</span>
+              <span id="autoCurrentBet">₹0.00</span>
+            </div>
+            <div class="auto-stat-item">
+              <span>Total:</span>
+              <span id="autoTotalProfit">₹0.00</span>
+            </div>
+            <div class="auto-stat-item">
+              <span>W/L:</span>
+              <span><span id="autoWins">0</span>/<span id="autoLosses">0</span></span>
+            </div>
+          </div>
+          
+          <button class="action-btn start-btn" id="startAutoBtn">Start Auto Bet</button>
+          <button class="action-btn stop-btn hidden" id="stopAutoBtn">Stop Auto Bet</button>
+        </div>
 
         <button class="fairness-btn" id="fairnessBtn">
           🔒 Provably Fair
@@ -70,7 +163,7 @@
 
         <div class="game-board" id="gameBoard"></div>
 
-        <p class="info-text">💎 Click tiles to reveal gems • 💣 Avoid mines • 💰 Cashout anytime</p>
+        <p class="info-text" id="infoText">💎 Click tiles to reveal gems • 💣 Avoid mines • 💰 Cashout anytime</p>
       </div>
 
       <div class="right-panel">

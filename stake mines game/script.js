@@ -23,7 +23,28 @@ const STATE = {
   previousServerSeedHash: null,
   previousClientSeed: null,
   previousNonce: null,
-  completedGames: []
+  completedGames: [],
+  autoMode: false,
+  autoRunning: false,
+  autoConfig: {
+    baseBet: 10,
+    rounds: 10,
+    mines: 3,
+    selectedTiles: [],
+    delay: 500,
+    onWin: 'reset',
+    onWinPercent: 0,
+    onLose: 'reset',
+    onLosePercent: 0,
+    stopOnProfit: null,
+    stopOnLoss: null
+  },
+  autoStats: {
+    currentRound: 0,
+    totalProfit: 0,
+    wins: 0,
+    losses: 0
+  }
 };
 
 // ============================================
@@ -556,16 +577,266 @@ async function addFunds() {
 }
 
 // ============================================
+// AUTO BET MODE
+// ============================================
+function toggleAutoMode() {
+  STATE.autoMode = !STATE.autoMode;
+  document.getElementById('manualMode').classList.toggle('hidden', STATE.autoMode);
+  document.getElementById('autoMode').classList.toggle('hidden', !STATE.autoMode);
+  document.getElementById('modeToggle').textContent = STATE.autoMode ? '🎮 Manual' : '🤖 Auto';
+}
+
+function selectAutoTile(index) {
+  if (STATE.autoRunning) return;
+  const tiles = STATE.autoConfig.selectedTiles;
+  const idx = tiles.indexOf(index);
+  if (idx > -1) {
+    tiles.splice(idx, 1);
+  } else {
+    tiles.push(index);
+  }
+  updateAutoBoard();
+}
+
+function updateAutoBoard() {
+  const board = document.getElementById('autoBoardPreview');
+  board.innerHTML = '';
+  for (let i = 0; i < 25; i++) {
+    const tile = document.createElement('button');
+    tile.className = 'auto-tile';
+    if (STATE.autoConfig.selectedTiles.includes(i)) {
+      tile.classList.add('selected');
+      tile.textContent = '💎';
+    }
+    tile.onclick = () => selectAutoTile(i);
+    board.appendChild(tile);
+  }
+}
+
+async function startAutoBet() {
+  const bet = parseFloat(document.getElementById('autoBetAmount').value);
+  const mines = parseInt(document.getElementById('autoMinesSlider').value);
+  const rounds = parseInt(document.getElementById('autoRounds').value);
+  const tiles = STATE.autoConfig.selectedTiles;
+  
+  if (tiles.length === 0) {
+    toast('Select tiles to reveal!', 'error');
+    return;
+  }
+  if (bet > STATE.balance) {
+    toast('Insufficient balance!', 'error');
+    return;
+  }
+  
+  STATE.autoConfig.baseBet = bet;
+  STATE.autoConfig.mines = mines;
+  STATE.autoConfig.rounds = rounds;
+  STATE.autoConfig.delay = parseInt(document.getElementById('autoDelay').value);
+  STATE.autoConfig.onWin = document.getElementById('onWin').value;
+  STATE.autoConfig.onWinPercent = parseFloat(document.getElementById('onWinPercent').value) || 0;
+  STATE.autoConfig.onLose = document.getElementById('onLose').value;
+  STATE.autoConfig.onLosePercent = parseFloat(document.getElementById('onLosePercent').value) || 0;
+  STATE.autoConfig.stopOnProfit = parseFloat(document.getElementById('stopProfit').value) || null;
+  STATE.autoConfig.stopOnLoss = parseFloat(document.getElementById('stopLoss').value) || null;
+  
+  STATE.autoRunning = true;
+  STATE.autoStats = { currentRound: 0, totalProfit: 0, wins: 0, losses: 0 };
+  STATE.bet = bet;
+  
+  document.getElementById('startAutoBtn').classList.add('hidden');
+  document.getElementById('stopAutoBtn').classList.remove('hidden');
+  document.querySelectorAll('#autoMode input, #autoMode select').forEach(el => el.disabled = true);
+  
+  runAutoRound();
+}
+
+function stopAutoBet() {
+  STATE.autoRunning = false;
+  document.getElementById('startAutoBtn').classList.remove('hidden');
+  document.getElementById('stopAutoBtn').classList.add('hidden');
+  document.querySelectorAll('#autoMode input, #autoMode select').forEach(el => el.disabled = false);
+  toast(`Auto bet stopped. Total: ${formatCurrency(STATE.autoStats.totalProfit)}`, 'info');
+}
+
+async function runAutoRound() {
+  if (!STATE.autoRunning) return;
+  
+  STATE.autoStats.currentRound++;
+  
+  if (STATE.autoStats.currentRound > STATE.autoConfig.rounds) {
+    stopAutoBet();
+    toast('Auto bet completed!', 'success');
+    return;
+  }
+  
+  if (STATE.autoConfig.stopOnProfit && STATE.autoStats.totalProfit >= STATE.autoConfig.stopOnProfit) {
+    stopAutoBet();
+    toast('Stop on profit reached!', 'success');
+    return;
+  }
+  
+  if (STATE.autoConfig.stopOnLoss && STATE.autoStats.totalProfit <= -STATE.autoConfig.stopOnLoss) {
+    stopAutoBet();
+    toast('Stop on loss reached!', 'error');
+    return;
+  }
+  
+  updateAutoStats();
+  
+  try {
+    const result = await api('/games/create', 'POST', {
+      userId: USER_ID,
+      betAmount: STATE.bet,
+      minesCount: STATE.autoConfig.mines
+    });
+    
+    STATE.gameId = result.game._id;
+    STATE.active = true;
+    STATE.revealed = [];
+    STATE.mines = STATE.autoConfig.mines;
+    STATE.multiplier = 1;
+    STATE.profit = 0;
+    STATE.balance = result.balance;
+    STATE.nonce = result.nextNonce;
+    
+    createBoard();
+    updateUI();
+    
+    await new Promise(resolve => setTimeout(resolve, STATE.autoConfig.delay));
+    
+    let hitMine = false;
+    for (const tileIndex of STATE.autoConfig.selectedTiles) {
+      if (!STATE.autoRunning) return;
+      
+      const revealResult = await api(`/games/${STATE.gameId}/reveal`, 'POST', {
+        tileIndex
+      });
+      
+      const tile = document.querySelector(`[data-index="${tileIndex}"]`);
+      STATE.revealed.push(tileIndex);
+      
+      if (revealResult.isMine) {
+        tile.className = 'tile revealed mine';
+        tile.textContent = '💣';
+        STATE.active = false;
+        STATE.profit = revealResult.game.profit;
+        STATE.balance = revealResult.balance;
+        hitMine = true;
+        
+        setTimeout(() => {
+          revealResult.game.minePositions.forEach(pos => {
+            if (pos !== tileIndex) {
+              const mineTile = document.querySelector(`[data-index="${pos}"]`);
+              if (mineTile) {
+                mineTile.className = 'tile revealed mine';
+                mineTile.textContent = '💣';
+              }
+            }
+          });
+        }, 200);
+        
+        addToHistory(false, STATE.profit);
+        STATE.autoStats.losses++;
+        STATE.autoStats.totalProfit += STATE.profit;
+        
+        if (STATE.autoConfig.onLose === 'increase') {
+          STATE.bet = STATE.bet * (1 + STATE.autoConfig.onLosePercent / 100);
+        } else {
+          STATE.bet = STATE.autoConfig.baseBet;
+        }
+        
+        break;
+      } else {
+        tile.className = 'tile revealed gem';
+        tile.textContent = '💎';
+        STATE.multiplier = revealResult.game.currentMultiplier;
+        STATE.profit = revealResult.game.potentialPayout - STATE.bet;
+      }
+      
+      updateUI();
+      await new Promise(resolve => setTimeout(resolve, STATE.autoConfig.delay / 2));
+    }
+    
+    if (!hitMine && STATE.active) {
+      const cashoutResult = await api(`/games/${STATE.gameId}/cashout`, 'POST');
+      STATE.active = false;
+      STATE.balance = cashoutResult.balance;
+      STATE.profit = cashoutResult.game.profit;
+      
+      cashoutResult.game.minePositions.forEach(pos => {
+        const tile = document.querySelector(`[data-index="${pos}"]`);
+        if (tile && !STATE.revealed.includes(pos)) {
+          tile.className = 'tile revealed mine';
+          tile.textContent = '💣';
+        }
+      });
+      
+      addToHistory(true, STATE.profit);
+      STATE.autoStats.wins++;
+      STATE.autoStats.totalProfit += STATE.profit;
+      
+      if (STATE.autoConfig.onWin === 'increase') {
+        STATE.bet = STATE.bet * (1 + STATE.autoConfig.onWinPercent / 100);
+      } else {
+        STATE.bet = STATE.autoConfig.baseBet;
+      }
+    }
+    
+    updateUI();
+    updateAutoStats();
+    
+    await new Promise(resolve => setTimeout(resolve, STATE.autoConfig.delay));
+    runAutoRound();
+  } catch (error) {
+    toast('Error: ' + error.message, 'error');
+    stopAutoBet();
+  }
+}
+
+function updateAutoStats() {
+  document.getElementById('autoCurrentRound').textContent = `${STATE.autoStats.currentRound} / ${STATE.autoConfig.rounds}`;
+  document.getElementById('autoCurrentBet').textContent = formatCurrency(STATE.bet);
+  document.getElementById('autoTotalProfit').textContent = formatCurrency(STATE.autoStats.totalProfit);
+  document.getElementById('autoWins').textContent = STATE.autoStats.wins;
+  document.getElementById('autoLosses').textContent = STATE.autoStats.losses;
+}
+
+// ============================================
 // EVENT LISTENERS
 // ============================================
 document.getElementById('startBtn').onclick = startGame;
 document.getElementById('cashoutBtn').onclick = cashout;
 document.getElementById('fairnessBtn').onclick = showFairnessModal;
 document.getElementById('addFundsBtn').onclick = addFunds;
+document.getElementById('modeToggle').onclick = toggleAutoMode;
+document.getElementById('startAutoBtn').onclick = startAutoBet;
+document.getElementById('stopAutoBtn').onclick = stopAutoBet;
 
 document.getElementById('minesSlider').oninput = (e) => {
   STATE.mines = parseInt(e.target.value);
   updateUI();
+};
+
+document.getElementById('autoMinesSlider').oninput = (e) => {
+  const mines = parseInt(e.target.value);
+  STATE.autoConfig.mines = mines;
+  document.getElementById('autoMinesCount').textContent = mines;
+  document.getElementById('autoMinesDisplay').textContent = mines;
+  document.getElementById('autoGemsCount').textContent = 25 - mines;
+};
+
+document.getElementById('onWin').onchange = (e) => {
+  document.getElementById('onWinPercentGroup').classList.toggle('hidden', e.target.value !== 'increase');
+};
+
+document.getElementById('onLose').onchange = (e) => {
+  document.getElementById('onLosePercentGroup').classList.toggle('hidden', e.target.value !== 'increase');
+};
+
+document.getElementById('toggleAdvanced').onclick = () => {
+  const advanced = document.getElementById('advancedSettings');
+  advanced.classList.toggle('hidden');
+  document.getElementById('toggleAdvanced').textContent = advanced.classList.contains('hidden') ? '▼ Advanced' : '▲ Advanced';
 };
 
 document.querySelectorAll('.bet-btn').forEach(btn => {
@@ -597,5 +868,6 @@ document.addEventListener('keydown', (e) => {
 // INITIALIZE
 // ============================================
 createBoard();
+updateAutoBoard();
 updateUI();
 initUser();
