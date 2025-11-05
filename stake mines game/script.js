@@ -661,6 +661,14 @@ async function verifyFairness() {
     });
 
     const resultDiv = document.getElementById('verifyResult');
+    
+    const grid = Array(25).fill(null).map((_, idx) => {
+      const isMine = result.result.minePositions.includes(idx);
+      const icon = isMine ? '💣' : '💎';
+      const tileClass = `round-tile ${isMine ? 'mine' : 'safe'}`;
+      return `<div class="${tileClass}">${icon}</div>`;
+    }).join('');
+    
     resultDiv.innerHTML = `
       <div style="margin-top: 15px; padding: 15px; background: rgba(0, 231, 1, 0.1); border: 1px solid rgba(0, 231, 1, 0.3); border-radius: 8px;">
         <div style="color: #00e701; font-weight: 700; margin-bottom: 10px;">
@@ -672,13 +680,11 @@ async function verifyFairness() {
         <div style="font-family: monospace; font-size: 10px; color: #e2e8f0; word-break: break-all; margin-bottom: 10px;">
           ${result.verification.serverSeedHash}
         </div>
-        <div style="font-size: 12px; color: #94a3b8; margin-bottom: 5px;">
-          Mine Positions:
+        <div style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
+          Mine Positions: ${result.result.minePositions.join(', ')}
         </div>
-        <div style="font-family: monospace; font-size: 13px; color: #00e701;">
-          ${result.result.minePositions.join(', ')}
-        </div>
-        <div style="margin-top: 10px; font-size: 11px; color: #94a3b8;">
+        <div class="round-grid" style="margin-bottom: 10px;">${grid}</div>
+        <div style="font-size: 11px; color: #94a3b8;">
           Total Mines: ${mines} | Safe Tiles: ${25 - mines}
         </div>
       </div>
